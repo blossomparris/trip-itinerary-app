@@ -56,6 +56,10 @@ export default function Index() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [tab, setTab] = useState("Dashboard");
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
+  const [openedEventIds, setOpenedEventIds] = useState<any>({});
+  const [moreEventIds, setMoreEventIds] = useState<any>({});
+  const [seenAnnouncementIds, setSeenAnnouncementIds] = useState<any>({});
+  const [lastAnnouncementAlertId, setLastAnnouncementAlertId] = useState("");
   const [weatherForecasts, setWeatherForecasts] = useState<any>({});
   const [weatherLoading, setWeatherLoading] = useState<any>({});
   const [expenses, setExpenses] = useState<any[]>([]);
@@ -925,6 +929,265 @@ export default function Index() {
   }, [selectedDayIndex, currentUser?.id]);
 
 
+  function getNotificationStorageKey() {
+    return `eurosummer-seen-announcements-${currentUser?.id || "guest"}`;
+  }
+
+  function getAnnouncementId(announcement: any) {
+    return (
+      announcement?.id ||
+      `${announcement?.sender || "trip"}-${announcement?.title || ""}-${announcement?.body || ""}`
+    );
+  }
+
+  function saveSeenAnnouncementIds(nextSeen: any) {
+    setSeenAnnouncementIds(nextSeen);
+
+    try {
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(
+          getNotificationStorageKey(),
+          JSON.stringify(nextSeen)
+        );
+      }
+    } catch (error) {
+      console.log("Could not save seen announcements:", error);
+    }
+  }
+
+  function markAnnouncementRead(announcement: any) {
+    const announcementId = getAnnouncementId(announcement);
+
+    saveSeenAnnouncementIds({
+      ...seenAnnouncementIds,
+      [announcementId]: true,
+    });
+  }
+
+  function markAllAnnouncementsRead() {
+    const nextSeen = { ...seenAnnouncementIds };
+
+    announcements.forEach((announcement: any) => {
+      nextSeen[getAnnouncementId(announcement)] = true;
+    });
+
+    saveSeenAnnouncementIds(nextSeen);
+  }
+
+  function getUnreadAnnouncements() {
+    if (!currentUser?.id) return [];
+
+    return announcements.filter((announcement: any) => {
+      const announcementId = getAnnouncementId(announcement);
+      const sentByMe = announcement?.sender === currentUser?.name;
+
+      return !sentByMe && !seenAnnouncementIds[announcementId];
+    });
+  }
+
+  function parseTripEventDateTime(day: any, event: any) {
+    const dateMatch = String(day?.id || "").match(/(\d{4})-(\d{2})-(\d{2})/);
+
+    if (!dateMatch) return null;
+
+    const year = Number(dateMatch[1]);
+    const monthIndex = Number(dateMatch[2]) - 1;
+    const dayNumber = Number(dateMatch[3]);
+    const rawTime = String(event?.time || "").trim();
+
+    let hours = 9;
+    let minutes = 0;
+
+    const timeMatch = rawTime.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?/i);
+
+    if (timeMatch) {
+      hours = Number(timeMatch[1]);
+      minutes = Number(timeMatch[2] || 0);
+
+      const meridian = String(timeMatch[3] || "").toUpperCase();
+
+      if (meridian === "PM" && hours < 12) hours += 12;
+      if (meridian === "AM" && hours === 12) hours = 0;
+    }
+
+    return new Date(year, monthIndex, dayNumber, hours, minutes, 0);
+  }
+
+  function formatEventCountdown(eventDate: Date) {
+    const diffMs = eventDate.getTime() - Date.now();
+    const totalMinutes = Math.max(0, Math.round(diffMs / 60000));
+    const daysAway = Math.floor(totalMinutes / 1440);
+    const hoursAway = Math.floor((totalMinutes % 1440) / 60);
+    const minutesAway = totalMinutes % 60;
+
+    if (daysAway > 0) return `${daysAway}d ${hoursAway}h`;
+    if (hoursAway > 0) return `${hoursAway}h ${minutesAway}m`;
+    return `${minutesAway}m`;
+  }
+
+  function getUpcomingEventAlerts() {
+    const now = new Date();
+    const endWindow = new Date(now.getTime() + 72 * 60 * 60 * 1000);
+    const upcoming: any[] = [];
+
+    days.forEach((day: any) => {
+      (day.events || []).forEach((event: any) => {
+        const eventDate = parseTripEventDateTime(day, event);
+
+        if (!eventDate) return;
+        if (eventDate < now || eventDate > endWindow) return;
+
+        upcoming.push({
+          id: `${day.id}-${event.id}`,
+          day,
+          event,
+          eventDate,
+        });
+      });
+    });
+
+    return upcoming.sort(
+      (a: any, b: any) => a.eventDate.getTime() - b.eventDate.getTime()
+    );
+  }
+
+  function renderNotificationCenter() {
+    const unreadAnnouncements = getUnreadAnnouncements();
+    const upcomingEvents = getUpcomingEventAlerts();
+
+    return (
+      <View style={styles.notificationCard}>
+        <View style={styles.notificationHeaderRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.cardLabel}>Alerts</Text>
+            <Text style={styles.cardTitle}>Trip Notifications 🔔</Text>
+            <Text style={styles.muted}>
+              Announcements and upcoming itinerary reminders in one place.
+            </Text>
+          </View>
+
+          <View style={styles.notificationBadge}>
+            <Text style={styles.notificationBadgeText}>
+              {unreadAnnouncements.length + upcomingEvents.length}
+            </Text>
+          </View>
+        </View>
+
+        {unreadAnnouncements.length > 0 ? (
+          <View style={styles.notificationSection}>
+            <View style={styles.notificationSectionHeader}>
+              <Text style={styles.notificationSectionTitle}>
+                New Announcements
+              </Text>
+
+              <Pressable onPress={markAllAnnouncementsRead}>
+                <Text style={styles.notificationActionText}>Mark read</Text>
+              </Pressable>
+            </View>
+
+            {unreadAnnouncements.slice(0, 3).map((announcement: any) => (
+              <Pressable
+                key={getAnnouncementId(announcement)}
+                onPress={() => {
+                  markAnnouncementRead(announcement);
+                  setTab("Announcements");
+                }}
+                style={styles.notificationItem}
+              >
+                <Text style={styles.notificationItemTitle}>
+                  {announcement.title || "Trip Update"}
+                </Text>
+                <Text style={styles.notificationItemBody}>
+                  {announcement.body || ""}
+                </Text>
+                <Text style={styles.notificationItemMeta}>
+                  From {announcement.sender || "Trip Team"}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : (
+          <Text style={styles.notificationEmptyText}>
+            No unread announcements right now.
+          </Text>
+        )}
+
+        {upcomingEvents.length > 0 ? (
+          <View style={styles.notificationSection}>
+            <Text style={styles.notificationSectionTitle}>
+              Coming Up In The Next 72 Hours
+            </Text>
+
+            {upcomingEvents.slice(0, 4).map((item: any) => (
+              <Pressable
+                key={item.id}
+                onPress={() => {
+                  const matchingIndex = days.findIndex(
+                    (day: any) => day.id === item.day.id
+                  );
+
+                  if (matchingIndex >= 0) {
+                    setSelectedDayIndex(matchingIndex);
+                    setTab("Itinerary");
+                  }
+                }}
+                style={styles.notificationItem}
+              >
+                <Text style={styles.notificationItemTitle}>
+                  {item.event.title}
+                </Text>
+                <Text style={styles.notificationItemBody}>
+                  {item.day.date} · {item.event.time || "Time TBD"} ·{" "}
+                  {item.event.location || "Location TBD"}
+                </Text>
+                <Text style={styles.notificationItemMeta}>
+                  Starts in {formatEventCountdown(item.eventDate)}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : (
+          <Text style={styles.notificationEmptyText}>
+            No events in the next 72 hours.
+          </Text>
+        )}
+      </View>
+    );
+  }
+
+  useEffect(() => {
+    if (!currentUser?.id) return;
+
+    try {
+      if (typeof localStorage === "undefined") return;
+
+      const savedSeen = localStorage.getItem(getNotificationStorageKey());
+
+      if (savedSeen) {
+        setSeenAnnouncementIds(JSON.parse(savedSeen));
+      }
+    } catch (error) {
+      console.log("Could not load seen announcements:", error);
+    }
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    if (!currentUser?.id || announcements.length === 0) return;
+
+    const newestAnnouncement = announcements[0];
+    const newestAnnouncementId = getAnnouncementId(newestAnnouncement);
+    const sentByMe = newestAnnouncement?.sender === currentUser?.name;
+
+    if (
+      !sentByMe &&
+      !seenAnnouncementIds[newestAnnouncementId] &&
+      lastAnnouncementAlertId !== newestAnnouncementId
+    ) {
+      setLastAnnouncementAlertId(newestAnnouncementId);
+    }
+  }, [announcements, currentUser?.id, seenAnnouncementIds]);
+
+
   function signIn() {
     if (!selectedMember) {
       Alert.alert("Choose your name");
@@ -1176,6 +1439,28 @@ export default function Index() {
     };
   }
 
+  function getUploadOwnerForSlot(slotKey: string) {
+    if (slotKey.startsWith("outfit-")) {
+      return getOutfitOwnerForSlot(slotKey);
+    }
+
+    if (slotKey.startsWith("qr-")) {
+      const matchingTraveler = tripMembers.find((person: any) =>
+        slotKey.endsWith(`-${person.id}`)
+      );
+
+      return {
+        ownerId: matchingTraveler?.id || currentUser?.id || "trip",
+        ownerName: matchingTraveler?.name || currentUser?.name || "Trip",
+      };
+    }
+
+    return {
+      ownerId: "trip",
+      ownerName: "Trip",
+    };
+  }
+
   function canCurrentUserSeeUpload(upload: any, canEdit = false) {
     if (!upload) return false;
 
@@ -1341,17 +1626,15 @@ export default function Index() {
     const selectedVisibility = isOutfitUpload
       ? forcedVisibility || getUploadVisibilityForSlot(slotKey)
       : "TRIP";
-    const outfitOwner = isOutfitUpload
-      ? getOutfitOwnerForSlot(slotKey)
-      : { ownerId: "trip", ownerName: "Trip" };
+    const uploadOwner = getUploadOwnerForSlot(slotKey);
 
     const savedUpload = {
       slotKey,
       label,
       uploadedBy: currentUser.name,
       uploadedByRole: currentUser.role,
-      ownerId: outfitOwner.ownerId,
-      ownerName: outfitOwner.ownerName,
+      ownerId: uploadOwner.ownerId,
+      ownerName: uploadOwner.ownerName,
       visibility: selectedVisibility,
       status: "Uploaded",
       time: new Date().toLocaleString(),
@@ -1391,6 +1674,151 @@ export default function Index() {
   }
 
 
+
+  function isEventOpened(eventId: string) {
+    return !!openedEventIds[eventId];
+  }
+
+  function isEventMoreOpen(eventId: string) {
+    return !!moreEventIds[eventId];
+  }
+
+  function toggleEventOpen(eventId: string) {
+    setOpenedEventIds((current: any) => {
+      const willOpen = !current[eventId];
+
+      if (!willOpen) {
+        setMoreEventIds((currentMore: any) => ({
+          ...currentMore,
+          [eventId]: false,
+        }));
+      }
+
+      return {
+        ...current,
+        [eventId]: willOpen,
+      };
+    });
+  }
+
+  function toggleEventMore(eventId: string) {
+    setMoreEventIds((current: any) => ({
+      ...current,
+      [eventId]: !current[eventId],
+    }));
+  }
+
+  function canManageEventQrForPerson(person: any) {
+    return currentUser?.role === "OWNER" || currentUser?.id === person?.id;
+  }
+
+  function renderEventMoreUploads(event: any) {
+    return (
+      <View style={styles.eventMorePanel}>
+        <View style={styles.eventUploadSection}>
+          <Text style={styles.eventUploadSectionTitle}>
+            QR Codes / Tickets by Traveler 🎟️
+          </Text>
+          <Text style={styles.muted}>
+            Each traveler has their own QR / ticket slot. Owners can manage every traveler; travelers can manage their own.
+          </Text>
+
+          {tripMembers.map((person: any) => (
+            <View key={`event-qr-${event.id}-${person.id}`} style={styles.eventQrPersonCard}>
+              <Text style={styles.eventPersonLabel}>{person.name}</Text>
+              {renderUploadSlot(
+                `qr-${event.id}-${person.id}`,
+                `${person.name} QR / Ticket`,
+                "🎟️",
+                canManageEventQrForPerson(person)
+              )}
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.eventUploadSection}>
+          <Text style={styles.eventUploadSectionTitle}>
+            Confirmation Screenshot 🧾
+          </Text>
+          {renderUploadSlot(
+            `confirmation-${event.id}`,
+            "Confirmation Screenshot",
+            "🧾",
+            true
+          )}
+        </View>
+
+        <View style={styles.eventUploadSection}>
+          <Text style={styles.eventUploadSectionTitle}>Event Photos 📸</Text>
+          {renderUploadSlot(`photos-${event.id}`, "Event Photos", "📸", true)}
+        </View>
+      </View>
+    );
+  }
+
+  function renderItineraryEventCard(event: any) {
+    const opened = isEventOpened(event.id);
+    const showMore = isEventMoreOpen(event.id);
+
+    return (
+      <View key={event.id} style={styles.card}>
+        <Pressable
+          onPress={() => toggleEventOpen(event.id)}
+          style={styles.eventClickableHeader}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={styles.date}>
+              {selectedDay.date} {event.time ? `· ${event.time}` : ""}
+            </Text>
+            <Text style={styles.cardTitle}>{event.title}</Text>
+            <Text style={styles.muted}>📍 {event.location}</Text>
+          </View>
+
+          <Text style={styles.eventOpenText}>{opened ? "Close" : "Open"}</Text>
+        </Pressable>
+
+        {opened && (
+          <>
+            <View style={styles.infoBox}>
+              <Text style={styles.cardLabel}>Confirmation</Text>
+              <Text style={styles.infoText}>
+                {event.confirmation || "Not added yet"}
+              </Text>
+            </View>
+
+            <Text style={styles.badge}>
+              {event.group === "EVERYONE"
+                ? "Visible to everyone 🌍"
+                : event.group === "OWNERS"
+                ? "Owners only 👑"
+                : "Private event 💌"}
+            </Text>
+
+            <Pressable
+              onPress={() => toggleEventMore(event.id)}
+              style={styles.eventMoreButton}
+            >
+              <Text style={styles.eventMoreButtonText}>
+                {showMore ? "Hide More" : "More: QR Codes, Confirmations & Photos"}
+              </Text>
+            </Pressable>
+
+            {showMore && renderEventMoreUploads(event)}
+
+            {currentUser.role === "OWNER" && (
+              <Pressable
+                onPress={() => deleteEvent(event)}
+                style={styles.dangerButton}
+              >
+                <Text style={styles.dangerButtonText}>Delete Event</Text>
+              </Pressable>
+            )}
+          </>
+        )}
+      </View>
+    );
+  }
+
   function renderUploadSlot(
     slotKey: string,
     label: string,
@@ -1423,6 +1851,7 @@ export default function Index() {
     const displayLabel =
       uploadLabels[slotKey]?.label || visibleUploads[0]?.label || label;
     const isOutfitSlot = slotKey.startsWith("outfit-");
+    const isQrSlot = slotKey.startsWith("qr-");
 
     return (
       <View style={styles.uploadSlotCard}>
@@ -1455,9 +1884,13 @@ export default function Index() {
         {visibleUploads.length > 0 && (
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {visibleUploads.map((upload: any, uploadIndex: number) => {
-              const uploadOwnerId =
-                upload.ownerId || upload.slotKey?.split("-")?.[1] || "";
-              const canManageThisImage = uploadOwnerId === currentUser?.id;
+              const uploadSlotKey = upload.slotKey || slotKey;
+              const fallbackOwner = getUploadOwnerForSlot(uploadSlotKey);
+              const uploadOwnerId = upload.ownerId || fallbackOwner.ownerId || "";
+              const canManageThisImage =
+                currentUser?.role === "OWNER" ||
+                uploadOwnerId === currentUser?.id ||
+                (canEdit && uploadOwnerId === "trip");
 
               return (
                 <View
@@ -1544,7 +1977,13 @@ export default function Index() {
               ]}
             >
               <Text style={styles.uploadActionText}>
-                {visibleUploads.length > 0 ? "Replace Saved Image" : "Choose Image"}
+                {isQrSlot
+                  ? visibleUploads.length > 0
+                    ? "Add Another QR / Ticket"
+                    : "Add QR / Ticket"
+                  : visibleUploads.length > 0
+                  ? "Add Another Image"
+                  : "Choose Image"}
               </Text>
             </Pressable>
           )
@@ -1715,6 +2154,8 @@ export default function Index() {
 
           {tab === "Dashboard" && (
             <>
+              {renderNotificationCenter()}
+
               <View style={styles.tripReadyCard}>
                 <Text style={styles.cardLabel}>Trip Ready</Text>
                 <Text style={styles.cardTitle}>Welcome, {currentUser.name} 🍋</Text>
@@ -1852,53 +2293,7 @@ export default function Index() {
                   </Text>
                 </View>
               ) : (
-                visibleEvents.map((event: any) => (
-                  <View key={event.id} style={styles.card}>
-                    <Text style={styles.date}>
-                      {selectedDay.date} {event.time ? `· ${event.time}` : ""}
-                    </Text>
-                    <Text style={styles.cardTitle}>{event.title}</Text>
-                    <Text style={styles.muted}>📍 {event.location}</Text>
-
-                    <View style={styles.infoBox}>
-                      <Text style={styles.cardLabel}>Confirmation</Text>
-                      <Text style={styles.infoText}>
-                        {event.confirmation || "Not added yet"}
-                      </Text>
-                    </View>
-
-                    <View style={styles.uploadGrid}>
-                      {renderUploadSlot(`qr-${event.id}`, "QR / Ticket", "🎟️")}
-                      {renderUploadSlot(
-                        `confirmation-${event.id}`,
-                        "Confirmation Screenshot",
-                        "🧾"
-                      )}
-                      {renderUploadSlot(
-                        `photos-${event.id}`,
-                        "Event Photos",
-                        "📸"
-                      )}
-                    </View>
-
-                    <Text style={styles.badge}>
-                      {event.group === "EVERYONE"
-                        ? "Visible to everyone 🌍"
-                        : event.group === "OWNERS"
-                        ? "Owners only 👑"
-                        : "Private event 💌"}
-                    </Text>
-
-                    {currentUser.role === "OWNER" && (
-                      <Pressable
-                        onPress={() => deleteEvent(event)}
-                        style={styles.dangerButton}
-                      >
-                        <Text style={styles.dangerButtonText}>Delete Event</Text>
-                      </Pressable>
-                    )}
-                  </View>
-                ))
+                visibleEvents.map((event: any) => renderItineraryEventCard(event))
               )}
 
               {currentUser.role === "OWNER" && (
@@ -2380,6 +2775,20 @@ export default function Index() {
 
           {tab === "Announcements" && (
             <View>
+              {getUnreadAnnouncements().length > 0 && (
+                <View style={styles.inlineAlertCard}>
+                  <Text style={styles.notificationItemTitle}>
+                    {getUnreadAnnouncements().length} unread announcement
+                    {getUnreadAnnouncements().length === 1 ? "" : "s"}
+                  </Text>
+                  <Pressable onPress={markAllAnnouncementsRead}>
+                    <Text style={styles.notificationActionText}>
+                      Mark all announcements read
+                    </Text>
+                  </Pressable>
+                </View>
+              )}
+
               <View style={styles.card}>
                 <Text style={styles.cardLabel}>Announcements</Text>
                 <Text style={styles.cardTitle}>Text Blasts 📣</Text>
@@ -3406,6 +3815,173 @@ const styles = StyleSheet.create({
 
   imageMetaRow: {
     marginTop: 8,
+  },
+
+  notificationCard: {
+    backgroundColor: colors.white,
+    borderRadius: 28,
+    padding: 18,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: colors.blush,
+  },
+
+  notificationHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+
+  notificationBadge: {
+    backgroundColor: colors.terracotta,
+    borderRadius: 999,
+    minWidth: 34,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+
+  notificationBadgeText: {
+    color: colors.white,
+    fontWeight: "900",
+    fontSize: 14,
+  },
+
+  notificationSection: {
+    marginTop: 14,
+    gap: 10,
+  },
+
+  notificationSectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+
+  notificationSectionTitle: {
+    color: colors.text,
+    fontWeight: "900",
+    fontSize: 15,
+  },
+
+  notificationActionText: {
+    color: colors.ocean,
+    fontWeight: "900",
+    fontSize: 12,
+  },
+
+  notificationItem: {
+    backgroundColor: "#FFF8F2",
+    borderRadius: 18,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: colors.blush,
+  },
+
+  notificationItemTitle: {
+    color: colors.text,
+    fontWeight: "900",
+    fontSize: 14,
+    marginBottom: 4,
+  },
+
+  notificationItemBody: {
+    color: colors.text,
+    fontWeight: "700",
+    fontSize: 13,
+    lineHeight: 18,
+  },
+
+  notificationItemMeta: {
+    color: colors.muted,
+    fontWeight: "800",
+    fontSize: 12,
+    marginTop: 6,
+  },
+
+  notificationEmptyText: {
+    color: colors.muted,
+    fontWeight: "800",
+    fontSize: 13,
+    marginTop: 12,
+  },
+
+  inlineAlertCard: {
+    backgroundColor: "#FFF8F2",
+    borderRadius: 20,
+    padding: 14,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: colors.blush,
+  },
+
+  eventClickableHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+
+  eventOpenText: {
+    color: colors.ocean,
+    fontWeight: "900",
+    fontSize: 12,
+    backgroundColor: "#FFF8F2",
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    overflow: "hidden",
+  },
+
+  eventMoreButton: {
+    backgroundColor: colors.ocean,
+    borderRadius: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    alignItems: "center",
+    marginTop: 12,
+  },
+
+  eventMoreButtonText: {
+    color: colors.white,
+    fontWeight: "900",
+    fontSize: 13,
+  },
+
+  eventMorePanel: {
+    marginTop: 14,
+    gap: 14,
+  },
+
+  eventUploadSection: {
+    backgroundColor: "#FFF8F2",
+    borderRadius: 22,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: colors.blush,
+  },
+
+  eventUploadSectionTitle: {
+    color: colors.text,
+    fontWeight: "900",
+    fontSize: 15,
+    marginBottom: 8,
+  },
+
+  eventQrPersonCard: {
+    backgroundColor: colors.white,
+    borderRadius: 18,
+    padding: 12,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: colors.blush,
+  },
+
+  eventPersonLabel: {
+    color: colors.terracotta,
+    fontWeight: "900",
+    fontSize: 13,
+    marginBottom: 8,
   },
 
 });
