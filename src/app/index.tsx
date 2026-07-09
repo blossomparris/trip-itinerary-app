@@ -99,6 +99,7 @@ export default function Index() {
   ]);
 
   const [uploads, setUploads] = useState<any>({});
+  const [uploadLabels, setUploadLabels] = useState<any>({});
   const [customEvents, setCustomEvents] = useState<any[]>([]);
   const [deletedEventIds, setDeletedEventIds] = useState<any>({});
   const [selectedClosetMemberId, setSelectedClosetMemberId] = useState(
@@ -113,10 +114,7 @@ export default function Index() {
   const [newEventGroup, setNewEventGroup] = useState("EVERYONE");
 
   useEffect(() => {
-    const uploadsQuery = query(
-      collection(db, "tripmuse-uploads"),
-      orderBy("createdAt", "desc")
-    );
+    const uploadsQuery = query(collection(db, "tripmuse-uploads"));
 
     const unsubscribeUploads = onSnapshot(
       uploadsQuery,
@@ -139,6 +137,32 @@ export default function Index() {
     );
 
     return () => unsubscribeUploads();
+  }, []);
+
+  useEffect(() => {
+    const uploadLabelsQuery = query(collection(db, "tripmuse-upload-labels"));
+
+    const unsubscribeUploadLabels = onSnapshot(
+      uploadLabelsQuery,
+      (snapshot) => {
+        const labelMap: any = {};
+
+        snapshot.docs.forEach((docSnapshot: any) => {
+          const data = docSnapshot.data();
+          labelMap[docSnapshot.id] = {
+            id: docSnapshot.id,
+            label: data.label || "",
+          };
+        });
+
+        setUploadLabels(labelMap);
+      },
+      (error) => {
+        console.log("Upload labels listener error:", error);
+      }
+    );
+
+    return () => unsubscribeUploadLabels();
   }, []);
 
   useEffect(() => {
@@ -465,6 +489,33 @@ export default function Index() {
     }
   }
 
+  function updateUploadLabelDraft(slotKey: string, label: string) {
+    setUploadLabels((currentLabels: any) => ({
+      ...currentLabels,
+      [slotKey]: {
+        ...(currentLabels[slotKey] || {}),
+        label,
+      },
+    }));
+  }
+
+  async function saveUploadLabel(slotKey: string, fallbackLabel: string) {
+    if (!currentUser || !currentUser.name) return;
+
+    const label = (uploadLabels[slotKey]?.label || fallbackLabel || "").trim();
+    if (!label) return;
+
+    try {
+      await setDoc(doc(db, "tripmuse-upload-labels", slotKey), {
+        label,
+        updatedBy: currentUser.name,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.log("Tile label save error:", error);
+    }
+  }
+
   async function pickUploadImage(slotKey: string, label: string) {
     if (!currentUser || !currentUser.name) return;
 
@@ -482,7 +533,7 @@ export default function Index() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"] as any,
       allowsEditing: true,
-      quality: 0.18,
+      quality: 0.08,
       base64: true,
     });
 
@@ -560,6 +611,7 @@ export default function Index() {
     canEdit = true
   ) {
     const upload = uploads[slotKey];
+    const displayLabel = uploadLabels[slotKey]?.label || upload?.label || label;
 
     return (
       <View style={styles.uploadSlotCard}>
@@ -567,7 +619,18 @@ export default function Index() {
           <Text style={styles.uploadIcon}>{icon}</Text>
 
           <View style={{ flex: 1 }}>
-            <Text style={styles.uploadTitle}>{label}</Text>
+            {canEdit ? (
+              <TextInput
+                value={displayLabel}
+                onChangeText={(value) => updateUploadLabelDraft(slotKey, value)}
+                onBlur={() => saveUploadLabel(slotKey, displayLabel)}
+                placeholder="Tile name"
+                style={styles.tileLabelInput}
+              />
+            ) : (
+              <Text style={styles.uploadTitle}>{displayLabel}</Text>
+            )}
+
             <Text style={styles.uploadStatus}>
               {upload
                 ? `Uploaded by ${upload.uploadedBy} · ${upload.time}`
@@ -587,7 +650,7 @@ export default function Index() {
         {canEdit ? (
           <>
             <Pressable
-              onPress={() => pickUploadImage(slotKey, label)}
+              onPress={() => pickUploadImage(slotKey, displayLabel)}
               style={[
                 styles.uploadActionButton,
                 upload && styles.uploadActionButtonDone,
@@ -883,70 +946,6 @@ export default function Index() {
                 ))}
               </ScrollView>
 
-              {currentUser.role === "OWNER" && (
-                <View style={styles.ownerCard}>
-                  <Text style={styles.cardLabel}>Owner Event Controls</Text>
-                  <Text style={styles.cardTitle}>Add an Event ➕</Text>
-                  <Text style={styles.muted}>
-                    Adds to {selectedDay.date} · {selectedDay.day}
-                  </Text>
-
-                  <TextInput
-                    value={newEventTitle}
-                    onChangeText={setNewEventTitle}
-                    placeholder="Event title"
-                    style={styles.eventInput}
-                  />
-
-                  <TextInput
-                    value={newEventTime}
-                    onChangeText={setNewEventTime}
-                    placeholder="Time, ex: 8:00 PM"
-                    style={styles.eventInput}
-                  />
-
-                  <TextInput
-                    value={newEventLocation}
-                    onChangeText={setNewEventLocation}
-                    placeholder="Location"
-                    style={styles.eventInput}
-                  />
-
-                  <TextInput
-                    value={newEventConfirmation}
-                    onChangeText={setNewEventConfirmation}
-                    placeholder="Confirmation / notes"
-                    style={styles.eventInput}
-                  />
-
-                  <TextInput
-                    value={newEventType}
-                    onChangeText={setNewEventType}
-                    placeholder="Type, ex: dinner, flight, activity"
-                    style={styles.eventInput}
-                  />
-
-                  <View style={styles.audienceRow}>
-                    {["EVERYONE", "OWNERS", "PRIVATE"].map((group) => (
-                      <Pressable
-                        key={group}
-                        onPress={() => setNewEventGroup(group)}
-                        style={[
-                          styles.audiencePill,
-                          newEventGroup === group && styles.activeAudiencePill,
-                        ]}
-                      >
-                        <Text style={styles.audienceText}>{group}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-
-                  <Pressable onPress={addCustomEvent} style={styles.primaryButton}>
-                    <Text style={styles.primaryText}>Add Event</Text>
-                  </Pressable>
-                </View>
-              )}
-
               <View style={styles.card}>
                 <Text style={styles.cardLabel}>Outfit Planner 👗</Text>
                 <Text style={styles.cardTitle}>{selectedDay.outfit.title}</Text>
@@ -1016,6 +1015,70 @@ export default function Index() {
                     )}
                   </View>
                 ))
+              )}
+
+              {currentUser.role === "OWNER" && (
+                <View style={styles.ownerCard}>
+                  <Text style={styles.cardLabel}>Owner Event Controls</Text>
+                  <Text style={styles.cardTitle}>Add an Event ➕</Text>
+                  <Text style={styles.muted}>
+                    Adds to {selectedDay.date} · {selectedDay.day}
+                  </Text>
+
+                  <TextInput
+                    value={newEventTitle}
+                    onChangeText={setNewEventTitle}
+                    placeholder="Event title"
+                    style={styles.eventInput}
+                  />
+
+                  <TextInput
+                    value={newEventTime}
+                    onChangeText={setNewEventTime}
+                    placeholder="Time, ex: 8:00 PM"
+                    style={styles.eventInput}
+                  />
+
+                  <TextInput
+                    value={newEventLocation}
+                    onChangeText={setNewEventLocation}
+                    placeholder="Location"
+                    style={styles.eventInput}
+                  />
+
+                  <TextInput
+                    value={newEventConfirmation}
+                    onChangeText={setNewEventConfirmation}
+                    placeholder="Confirmation / notes"
+                    style={styles.eventInput}
+                  />
+
+                  <TextInput
+                    value={newEventType}
+                    onChangeText={setNewEventType}
+                    placeholder="Type, ex: dinner, flight, activity"
+                    style={styles.eventInput}
+                  />
+
+                  <View style={styles.audienceRow}>
+                    {["EVERYONE", "OWNERS", "PRIVATE"].map((group) => (
+                      <Pressable
+                        key={group}
+                        onPress={() => setNewEventGroup(group)}
+                        style={[
+                          styles.audiencePill,
+                          newEventGroup === group && styles.activeAudiencePill,
+                        ]}
+                      >
+                        <Text style={styles.audienceText}>{group}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  <Pressable onPress={addCustomEvent} style={styles.primaryButton}>
+                    <Text style={styles.primaryText}>Add Event</Text>
+                  </Pressable>
+                </View>
               )}
             </>
           )}
@@ -1874,6 +1937,16 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontWeight: "900",
     fontSize: 15,
+  },
+
+  tileLabelInput: {
+    color: colors.text,
+    fontWeight: "900",
+    fontSize: 15,
+    backgroundColor: colors.white,
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
 
   uploadStatus: {
