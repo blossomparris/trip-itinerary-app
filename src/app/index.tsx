@@ -1,5 +1,6 @@
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
+import { getMessaging, getToken, isSupported, onMessage } from "firebase/messaging";
 import {
   addDoc,
   collection,
@@ -27,10 +28,12 @@ import {
 
 import { colors } from "../constants/theme";
 import { days, members } from "../data/tripData";
-import { db } from "../services/firebase";
+import { app, db } from "../services/firebase";
 
 const citrusPattern = require("../../assets/images/citrus-pattern.png");
 const santoriniMoodboard = require("../../assets/images/santorini-moodboard.png");
+
+const FIREBASE_WEB_PUSH_VAPID_KEY = "BHYz66ruWjIVv8pqJLPqvIwk27m1HjDgTg0A0qSFkd3kIwWucWqzOlN88FrA7xnsPyn98zanmNGg0wwh8QeKPoI";
 
 const travelerPhoneLast4: any = {
   blossom: "6249",
@@ -56,6 +59,8 @@ export default function Index() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [tab, setTab] = useState("Dashboard");
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
+  const [pushStatus, setPushStatus] = useState("OFF");
+  const [pushToken, setPushToken] = useState("");
   const [openedEventIds, setOpenedEventIds] = useState<any>({});
   const [moreEventIds, setMoreEventIds] = useState<any>({});
   const [seenAnnouncementIds, setSeenAnnouncementIds] = useState<any>({});
@@ -1073,6 +1078,25 @@ export default function Index() {
           </View>
         </View>
 
+        <View style={styles.pushPermissionBox}>
+          <Text style={styles.notificationSectionTitle}>
+            Phone Push Notifications
+          </Text>
+          <Text style={styles.notificationEmptyText}>{getPushStatusMessage()}</Text>
+
+          <Pressable
+            onPress={enablePushNotifications}
+            style={[
+              styles.pushPermissionButton,
+              pushStatus === "ON" && styles.pushPermissionButtonOn,
+            ]}
+          >
+            <Text style={styles.pushPermissionButtonText}>
+              {pushStatus === "ON" ? "Push Notifications On" : "Turn On Push Notifications"}
+            </Text>
+          </Pressable>
+        </View>
+
         {unreadAnnouncements.length > 0 ? (
           <View style={styles.notificationSection}>
             <View style={styles.notificationSectionHeader}>
@@ -1186,6 +1210,206 @@ export default function Index() {
       setLastAnnouncementAlertId(newestAnnouncementId);
     }
   }, [announcements, currentUser?.id, seenAnnouncementIds]);
+
+
+  function getPushTokenDocId(token: string) {
+    return token.replace(/\//g, "_slash_");
+  }
+
+  function getPushStatusMessage() {
+    if (pushStatus === "ON") return "Push notifications are on for this browser.";
+    if (pushStatus === "REQUESTING") return "Asking this browser for notification access...";
+    if (pushStatus === "DENIED") return "Notifications are blocked in this browser.";
+    if (pushStatus === "UNSUPPORTED") return "Push notifications are not supported in this browser.";
+    if (FIREBASE_WEB_PUSH_VAPID_KEY.includes("PASTE_YOUR")) {
+      return "Push setup needs the Firebase Web Push certificate key first.";
+    }
+    return "Turn on notifications for announcements and event reminders.";
+  }
+
+  async function enablePushNotifications() {
+    if (!currentUser?.id) return;
+
+    if (FIREBASE_WEB_PUSH_VAPID_KEY.includes("PASTE_YOUR")) {
+      Alert.alert(
+        "Firebase key needed",
+        "Add your Firebase Web Push certificate key, then redeploy."
+      );
+      return;
+    }
+
+    try {
+      setPushStatus("REQUESTING");
+
+      if (typeof window === "undefined" || typeof navigator === "undefined") {
+        setPushStatus("UNSUPPORTED");
+        Alert.alert("Not supported", "Push notifications must be enabled in a browser.");
+        return;
+      }
+
+      const supported = await isSupported();
+
+      if (
+        !supported ||
+        !("Notification" in window) ||
+        !("serviceWorker" in navigator)
+      ) {
+        setPushStatus("UNSUPPORTED");
+        Alert.alert(
+          "Not supported",
+          "This browser does not support web push notifications."
+        );
+        return;
+      }
+
+      let permission = Notification.permission;
+
+      if (permission === "default") {
+        permission = await Notification.requestPermission();
+      }
+
+      if (permission !== "granted") {
+        setPushStatus("DENIED");
+        Alert.alert(
+          "Notifications blocked",
+          "Open browser settings for this site and allow notifications."
+        );
+        return;
+      }
+
+      const serviceWorkerRegistration =
+        await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+
+      const messaging = getMessaging(app);
+      const token = await getToken(messaging, {
+        vapidKey: FIREBASE_WEB_PUSH_VAPID_KEY,
+        serviceWorkerRegistration,
+      });
+
+      if (!token) {
+        setPushStatus("OFF");
+        Alert.alert(
+          "Token not created",
+          "Please try again after refreshing the app."
+        );
+        return;
+      }
+
+      const tokenDocId = getPushTokenDocId(token);
+
+      await setDoc(
+        doc(db, "tripmuse-push-tokens", tokenDocId),
+        {
+          token,
+          userId: currentUser.id,
+          userName: currentUser.name,
+          userRole: currentUser.role,
+          enabled: true,
+          source: "web-pwa",
+          userAgent:
+            typeof navigator !== "undefined" ? navigator.userAgent : "",
+          updatedAt: serverTimestamp(),
+          createdAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      setPushToken(token);
+      setPushStatus("ON");
+
+      Alert.alert(
+        "Push Notifications On 🔔",
+        "You can now receive announcement and event reminder notifications on this device."
+      );
+    } catch (error) {
+      console.log("Push enable error:", error);
+      setPushStatus("OFF");
+      Alert.alert(
+        "Push setup issue",
+        "Push notifications could not be enabled. Try again after refreshing."
+      );
+    }
+  }
+
+  async function syncEventPushReminders() {
+    if (!currentUser || currentUser.role !== "OWNER") return;
+
+    try {
+      for (const day of days) {
+        const dayEvents = getEventsForDay(day).filter((event: any) =>
+          canSeeEvent(event, currentUser)
+        );
+
+        for (const event of dayEvents) {
+          const eventDate = parseTripEventDateTime(day, event);
+
+          if (!eventDate) continue;
+          if (eventDate.getTime() < Date.now()) continue;
+
+          await setDoc(
+            doc(db, "tripmuse-event-reminders", `${day.id}-${event.id}`),
+            {
+              eventId: event.id,
+              dayId: day.id,
+              dayLabel: day.day,
+              dateLabel: day.date,
+              title: event.title || "Trip Event",
+              time: event.time || "",
+              location: event.location || "",
+              group: event.group || "EVERYONE",
+              attendees: event.attendees || [],
+              eventAtMillis: eventDate.getTime(),
+              eventAtIso: eventDate.toISOString(),
+              reminder24Sent: false,
+              reminder2Sent: false,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+        }
+      }
+    } catch (error) {
+      console.log("Event push reminder sync error:", error);
+    }
+  }
+
+  useEffect(() => {
+    if (!currentUser?.id) return;
+
+    let unsubscribeForegroundMessages: any = null;
+
+    isSupported()
+      .then((supported) => {
+        if (!supported) return;
+
+        const messaging = getMessaging(app);
+
+        unsubscribeForegroundMessages = onMessage(messaging, (payload: any) => {
+          const title = payload?.notification?.title || "EuroSummer2026";
+          const body =
+            payload?.notification?.body ||
+            payload?.data?.body ||
+            "You have a new trip update.";
+
+          Alert.alert(title, body);
+        });
+      })
+      .catch((error) => {
+        console.log("Foreground push listener error:", error);
+      });
+
+    return () => {
+      if (unsubscribeForegroundMessages) {
+        unsubscribeForegroundMessages();
+      }
+    };
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    if (!currentUser?.id || currentUser.role !== "OWNER") return;
+
+    syncEventPushReminders();
+  }, [currentUser?.id, customEvents.length, Object.keys(deletedEventIds || {}).join("|")]);
 
 
   function signIn() {
@@ -3982,6 +4206,34 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     fontSize: 13,
     marginBottom: 8,
+  },
+
+  pushPermissionBox: {
+    backgroundColor: "#FFF8F2",
+    borderRadius: 20,
+    padding: 14,
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: colors.blush,
+  },
+
+  pushPermissionButton: {
+    backgroundColor: colors.terracotta,
+    borderRadius: 999,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    alignItems: "center",
+    marginTop: 10,
+  },
+
+  pushPermissionButtonOn: {
+    backgroundColor: colors.ocean,
+  },
+
+  pushPermissionButtonText: {
+    color: colors.white,
+    fontWeight: "900",
+    fontSize: 13,
   },
 
 });
