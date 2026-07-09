@@ -56,6 +56,8 @@ export default function Index() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [tab, setTab] = useState("Dashboard");
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
+  const [weatherForecasts, setWeatherForecasts] = useState<any>({});
+  const [weatherLoading, setWeatherLoading] = useState<any>({});
   const [expenses, setExpenses] = useState<any[]>([]);
   const [expenseTitle, setExpenseTitle] = useState("");
   const [expenseAmount, setExpenseAmount] = useState("");
@@ -622,6 +624,305 @@ export default function Index() {
 
     Linking.openURL(link);
   }
+
+
+  const weatherCityCoordinates: any = {
+    "new york": {
+      latitude: 40.7128,
+      longitude: -74.006,
+      label: "New York",
+    },
+    london: {
+      latitude: 51.5072,
+      longitude: -0.1276,
+      label: "London",
+    },
+    mykonos: {
+      latitude: 37.4467,
+      longitude: 25.3289,
+      label: "Mykonos",
+    },
+    athens: {
+      latitude: 37.9838,
+      longitude: 23.7275,
+      label: "Athens",
+    },
+  };
+
+  const weatherCodeLabels: any = {
+    0: { label: "Clear sky", icon: "☀️" },
+    1: { label: "Mainly clear", icon: "🌤️" },
+    2: { label: "Partly cloudy", icon: "⛅" },
+    3: { label: "Overcast", icon: "☁️" },
+    45: { label: "Fog", icon: "🌫️" },
+    48: { label: "Rime fog", icon: "🌫️" },
+    51: { label: "Light drizzle", icon: "🌦️" },
+    53: { label: "Drizzle", icon: "🌦️" },
+    55: { label: "Heavy drizzle", icon: "🌧️" },
+    56: { label: "Freezing drizzle", icon: "🌧️" },
+    57: { label: "Freezing drizzle", icon: "🌧️" },
+    61: { label: "Light rain", icon: "🌧️" },
+    63: { label: "Rain", icon: "🌧️" },
+    65: { label: "Heavy rain", icon: "🌧️" },
+    66: { label: "Freezing rain", icon: "🌧️" },
+    67: { label: "Freezing rain", icon: "🌧️" },
+    71: { label: "Light snow", icon: "🌨️" },
+    73: { label: "Snow", icon: "🌨️" },
+    75: { label: "Heavy snow", icon: "🌨️" },
+    77: { label: "Snow grains", icon: "🌨️" },
+    80: { label: "Light showers", icon: "🌦️" },
+    81: { label: "Showers", icon: "🌧️" },
+    82: { label: "Heavy showers", icon: "🌧️" },
+    85: { label: "Snow showers", icon: "🌨️" },
+    86: { label: "Snow showers", icon: "🌨️" },
+    95: { label: "Thunderstorm", icon: "⛈️" },
+    96: { label: "Thunderstorm + hail", icon: "⛈️" },
+    99: { label: "Thunderstorm + hail", icon: "⛈️" },
+  };
+
+  function getTripWeatherCity(day: any) {
+    const city = String(day?.city || "").trim();
+
+    if (city) return city;
+
+    const dayText = `${day?.day || ""} ${day?.date || ""}`.toLowerCase();
+
+    if (dayText.includes("london")) return "London";
+    if (dayText.includes("mykonos")) return "Mykonos";
+    if (dayText.includes("athens")) return "Athens";
+    if (dayText.includes("new york") || dayText.includes("nyc")) return "New York";
+
+    return "London";
+  }
+
+  function getTripWeatherDate(day: any) {
+    const idMatch = String(day?.id || "").match(/(\d{4}-\d{2}-\d{2})/);
+    if (idMatch?.[1]) return idMatch[1];
+
+    const months: any = {
+      jan: "01",
+      feb: "02",
+      mar: "03",
+      apr: "04",
+      may: "05",
+      jun: "06",
+      jul: "07",
+      aug: "08",
+      sep: "09",
+      oct: "10",
+      nov: "11",
+      dec: "12",
+    };
+
+    const dateText = String(day?.date || "").trim().toLowerCase();
+    const dateMatch = dateText.match(/([a-z]{3})\s+(\d{1,2})/);
+
+    if (!dateMatch) return "";
+
+    const month = months[dateMatch[1]];
+    const dayNumber = String(dateMatch[2]).padStart(2, "0");
+
+    return `2026-${month}-${dayNumber}`;
+  }
+
+  async function getCoordinatesForWeatherCity(city: string) {
+    const cityKey = city.toLowerCase().trim();
+
+    if (weatherCityCoordinates[cityKey]) {
+      return weatherCityCoordinates[cityKey];
+    }
+
+    const geocodeUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
+      city
+    )}&count=1&language=en&format=json`;
+
+    const response = await fetch(geocodeUrl);
+    const data = await response.json();
+    const firstResult = data?.results?.[0];
+
+    if (!firstResult) return null;
+
+    return {
+      latitude: firstResult.latitude,
+      longitude: firstResult.longitude,
+      label: firstResult.name || city,
+    };
+  }
+
+  async function fetchWeatherForDay(day: any, force = false) {
+    if (!day?.id) return;
+
+    if (weatherForecasts[day.id] && !force) return;
+
+    const city = getTripWeatherCity(day);
+    const dateIso = getTripWeatherDate(day);
+
+    if (!city || !dateIso) {
+      setWeatherForecasts((current: any) => ({
+        ...current,
+        [day.id]: {
+          status: "missing",
+          city,
+          dateIso,
+          message: "Weather unavailable for this day.",
+        },
+      }));
+      return;
+    }
+
+    setWeatherLoading((current: any) => ({
+      ...current,
+      [day.id]: true,
+    }));
+
+    try {
+      const coordinates = await getCoordinatesForWeatherCity(city);
+
+      if (!coordinates) {
+        throw new Error(`No coordinates found for ${city}`);
+      }
+
+      const forecastUrl =
+        `https://api.open-meteo.com/v1/forecast?latitude=${coordinates.latitude}` +
+        `&longitude=${coordinates.longitude}` +
+        "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max" +
+        "&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=auto&forecast_days=16";
+
+      const response = await fetch(forecastUrl);
+      const data = await response.json();
+
+      const dateIndex = data?.daily?.time?.indexOf(dateIso);
+
+      if (dateIndex === -1 || dateIndex === undefined) {
+        setWeatherForecasts((current: any) => ({
+          ...current,
+          [day.id]: {
+            status: "future",
+            city: coordinates.label || city,
+            dateIso,
+            message:
+              "Forecast will appear when this date is inside the 16-day weather window.",
+          },
+        }));
+        return;
+      }
+
+      const code = data.daily.weather_code?.[dateIndex];
+      const codeInfo = weatherCodeLabels[code] || {
+        label: "Forecast available",
+        icon: "🌤️",
+      };
+
+      setWeatherForecasts((current: any) => ({
+        ...current,
+        [day.id]: {
+          status: "ready",
+          city: coordinates.label || city,
+          dateIso,
+          code,
+          summary: codeInfo.label,
+          icon: codeInfo.icon,
+          tempHigh: data.daily.temperature_2m_max?.[dateIndex],
+          tempLow: data.daily.temperature_2m_min?.[dateIndex],
+          precipProbability: data.daily.precipitation_probability_max?.[dateIndex],
+          windMax: data.daily.wind_speed_10m_max?.[dateIndex],
+          updatedAt: new Date().toLocaleTimeString([], {
+            hour: "numeric",
+            minute: "2-digit",
+          }),
+        },
+      }));
+    } catch (error) {
+      console.log("Weather forecast error:", error);
+
+      setWeatherForecasts((current: any) => ({
+        ...current,
+        [day.id]: {
+          status: "error",
+          city,
+          dateIso,
+          message: "Weather could not load right now.",
+        },
+      }));
+    } finally {
+      setWeatherLoading((current: any) => ({
+        ...current,
+        [day.id]: false,
+      }));
+    }
+  }
+
+  function renderWeatherCard(day: any) {
+    const forecast = weatherForecasts[day.id];
+    const isLoading = weatherLoading[day.id];
+    const city = getTripWeatherCity(day);
+
+    return (
+      <View style={styles.weatherCard}>
+        <View style={styles.weatherTopRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.cardLabel}>Weather Forecast</Text>
+            <Text style={styles.cardTitle}>
+              {forecast?.icon || "🌤️"} {city}
+            </Text>
+            <Text style={styles.muted}>
+              {getTripWeatherDate(day)} · updates from live weather API
+            </Text>
+          </View>
+
+          <Pressable
+            onPress={() => fetchWeatherForDay(day, true)}
+            style={styles.weatherRefreshButton}
+          >
+            <Text style={styles.weatherRefreshText}>Refresh</Text>
+          </Pressable>
+        </View>
+
+        {isLoading ? (
+          <Text style={styles.muted}>Loading forecast...</Text>
+        ) : forecast?.status === "ready" ? (
+          <>
+            <Text style={styles.weatherSummary}>
+              {forecast.summary} · High {Math.round(Number(forecast.tempHigh))}°F / Low{" "}
+              {Math.round(Number(forecast.tempLow))}°F
+            </Text>
+
+            <View style={styles.weatherGrid}>
+              <View style={styles.weatherStat}>
+                <Text style={styles.weatherStatLabel}>Rain chance</Text>
+                <Text style={styles.weatherStatValue}>
+                  {forecast.precipProbability ?? 0}%
+                </Text>
+              </View>
+
+              <View style={styles.weatherStat}>
+                <Text style={styles.weatherStatLabel}>Wind</Text>
+                <Text style={styles.weatherStatValue}>
+                  {Math.round(Number(forecast.windMax || 0))} mph
+                </Text>
+              </View>
+
+              <View style={styles.weatherStat}>
+                <Text style={styles.weatherStatLabel}>Updated</Text>
+                <Text style={styles.weatherStatValue}>{forecast.updatedAt}</Text>
+              </View>
+            </View>
+          </>
+        ) : (
+          <Text style={styles.muted}>
+            {forecast?.message ||
+              "Tap Refresh to load the weather forecast for this city."}
+          </Text>
+        )}
+      </View>
+    );
+  }
+
+  useEffect(() => {
+    if (!currentUser || !days[selectedDayIndex]) return;
+
+    fetchWeatherForDay(days[selectedDayIndex]);
+  }, [selectedDayIndex, currentUser?.id]);
 
 
   function signIn() {
@@ -1526,6 +1827,8 @@ export default function Index() {
                   </Pressable>
                 ))}
               </ScrollView>
+
+              {renderWeatherCard(selectedDay)}
 
               <View style={styles.card}>
                 <Text style={styles.cardLabel}>Outfit Planner 👗</Text>
@@ -3037,6 +3340,68 @@ const styles = StyleSheet.create({
   outfitUploadButtonGrid: {
     gap: 10,
     marginTop: 12,
+  },
+
+  weatherCard: {
+    backgroundColor: colors.sky,
+    borderRadius: 28,
+    padding: 18,
+    marginBottom: 14,
+  },
+
+  weatherTopRow: {
+    flexDirection: "row",
+    gap: 12,
+    alignItems: "flex-start",
+  },
+
+  weatherRefreshButton: {
+    backgroundColor: colors.white,
+    borderRadius: 999,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+  },
+
+  weatherRefreshText: {
+    color: colors.ocean,
+    fontWeight: "900",
+    fontSize: 12,
+  },
+
+  weatherSummary: {
+    color: colors.text,
+    fontWeight: "900",
+    fontSize: 16,
+    lineHeight: 22,
+    marginTop: 14,
+  },
+
+  weatherGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 14,
+  },
+
+  weatherStat: {
+    backgroundColor: colors.white,
+    borderRadius: 18,
+    padding: 12,
+    minWidth: "30%",
+    flex: 1,
+  },
+
+  weatherStatLabel: {
+    color: colors.muted,
+    fontWeight: "800",
+    fontSize: 11,
+    marginBottom: 4,
+  },
+
+  weatherStatValue: {
+    color: colors.text,
+    fontWeight: "900",
+    fontSize: 14,
   },
 
 });
