@@ -29,6 +29,24 @@ import { db } from "../services/firebase";
 const citrusPattern = require("../../assets/images/citrus-pattern.png");
 const santoriniMoodboard = require("../../assets/images/santorini-moodboard.png");
 
+const travelerPhoneLast4: any = {
+  blossom: "6249",
+  simone: "6224",
+  kacper: "4754",
+  sam: "3963",
+  liz: "3661",
+  devvora: "2122",
+};
+
+function normalizePhone(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+function getLastFour(value: string) {
+  const digits = normalizePhone(value);
+  return digits.slice(-4);
+}
+
 export default function Index() {
   const [selectedMember, setSelectedMember] = useState<any>(null);
   const [phone, setPhone] = useState("");
@@ -170,10 +188,32 @@ export default function Index() {
       return;
     }
 
+    const expectedLast4 = travelerPhoneLast4[selectedMember.id];
+    const enteredLast4 = getLastFour(phone);
+
+    if (!expectedLast4) {
+      Alert.alert(
+        "Verification unavailable",
+        "This traveler does not have a verification number set up yet."
+      );
+      return;
+    }
+
+    if (enteredLast4 !== expectedLast4) {
+      Alert.alert(
+        "Phone not verified",
+        "That phone number does not match the selected traveler."
+      );
+      return;
+    }
+
     setCurrentUser({
       ...selectedMember,
-      phone,
+      phoneLast4: enteredLast4,
+      phoneVerified: true,
     });
+
+    setPhone("");
   }
 
   function signOut() {
@@ -438,7 +478,8 @@ export default function Index() {
             <Text style={styles.logo}>🍋 TripMuse</Text>
             <Text style={styles.title}>Euro Summer 2026</Text>
             <Text style={styles.subtitle}>
-              Select your name and enter your phone number.
+              Select your name and enter your phone number to verify your trip
+              access.
             </Text>
 
             {tripMembers.map((person: any) => (
@@ -457,6 +498,15 @@ export default function Index() {
               </Pressable>
             ))}
 
+            {selectedMember && (
+              <View style={styles.verifyCard}>
+                <Text style={styles.cardLabel}>Phone Verification</Text>
+                <Text style={styles.verifyText}>
+                  Enter the phone number linked to {selectedMember.name}.
+                </Text>
+              </View>
+            )}
+
             <TextInput
               value={phone}
               onChangeText={setPhone}
@@ -466,8 +516,13 @@ export default function Index() {
             />
 
             <Pressable onPress={signIn} style={styles.primaryButton}>
-              <Text style={styles.primaryText}>Enter Trip ✈️</Text>
+              <Text style={styles.primaryText}>Verify & Enter Trip ✈️</Text>
             </Pressable>
+
+            <Text style={styles.loginNote}>
+              This is a free app-side verification check. Real SMS codes can be
+              added later with Firebase Phone Auth.
+            </Text>
           </ScrollView>
         </LinearGradient>
       </ImageBackground>
@@ -491,6 +546,12 @@ export default function Index() {
             Signed in as {currentUser.name} · {currentUser.role}
           </Text>
 
+          <View style={styles.verifiedBadge}>
+            <Text style={styles.verifiedText}>
+              Verified phone ending in {currentUser.phoneLast4} ✅
+            </Text>
+          </View>
+
           <Pressable onPress={signOut} style={styles.signOutButton}>
             <Text style={styles.signOutText}>Sign Out</Text>
           </Pressable>
@@ -511,6 +572,31 @@ export default function Index() {
 
           {tab === "Dashboard" && (
             <>
+              <View style={styles.tripReadyCard}>
+                <Text style={styles.cardLabel}>Trip Ready</Text>
+                <Text style={styles.cardTitle}>Welcome, {currentUser.name} 🍋</Text>
+                <Text style={styles.muted}>
+                  Your traveler access is verified. Use the quick actions below
+                  to jump into the trip.
+                </Text>
+
+                <View style={styles.quickActions}>
+                  <Pressable
+                    onPress={() => setTab("Itinerary")}
+                    style={styles.quickButton}
+                  >
+                    <Text style={styles.quickButtonText}>View Itinerary</Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => setTab("Chat")}
+                    style={styles.quickButtonLight}
+                  >
+                    <Text style={styles.quickButtonLightText}>Open Chat</Text>
+                  </Pressable>
+                </View>
+              </View>
+
               <View style={styles.card}>
                 <Text style={styles.cardLabel}>Trip Overview</Text>
                 <Text style={styles.cardTitle}>Euro Summer 2026 ✈️</Text>
@@ -875,8 +961,46 @@ const styles = StyleSheet.create({
   subtitle: {
     color: colors.muted,
     marginTop: 8,
-    marginBottom: 22,
+    marginBottom: 14,
     fontSize: 16,
+  },
+
+  loginNote: {
+    color: colors.muted,
+    marginTop: 14,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+
+  verifyCard: {
+    backgroundColor: colors.white,
+    borderRadius: 22,
+    padding: 16,
+    marginTop: 8,
+    marginBottom: 6,
+    borderLeftWidth: 5,
+    borderLeftColor: colors.ocean,
+  },
+
+  verifyText: {
+    color: colors.text,
+    fontWeight: "700",
+    lineHeight: 20,
+  },
+
+  verifiedBadge: {
+    backgroundColor: colors.sky,
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    alignSelf: "flex-start",
+    marginBottom: 12,
+  },
+
+  verifiedText: {
+    color: colors.text,
+    fontWeight: "900",
+    fontSize: 12,
   },
 
   memberButton: {
@@ -952,6 +1076,44 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: colors.text,
     fontSize: 12,
+  },
+
+  tripReadyCard: {
+    backgroundColor: colors.sky,
+    borderRadius: 30,
+    padding: 22,
+    marginBottom: 16,
+  },
+
+  quickActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 16,
+  },
+
+  quickButton: {
+    backgroundColor: colors.ocean,
+    borderRadius: 999,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+
+  quickButtonText: {
+    color: colors.white,
+    fontWeight: "900",
+  },
+
+  quickButtonLight: {
+    backgroundColor: colors.white,
+    borderRadius: 999,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+
+  quickButtonLightText: {
+    color: colors.ocean,
+    fontWeight: "900",
   },
 
   card: {
