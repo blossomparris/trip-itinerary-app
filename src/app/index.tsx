@@ -80,6 +80,21 @@ export default function Index() {
   const [uploads, setUploads] = useState<any>({});
 
   useEffect(() => {
+    try {
+      const browserStorage = (globalThis as any)?.localStorage;
+      if (!browserStorage) return;
+
+      const savedUploads = browserStorage.getItem("tripmuse-uploads");
+
+      if (savedUploads) {
+        setUploads(JSON.parse(savedUploads));
+      }
+    } catch (error) {
+      console.log("Could not load saved uploads:", error);
+    }
+  }, []);
+
+  useEffect(() => {
     const chatQuery = query(
       collection(db, "tripmuse-chat"),
       orderBy("createdAt", "asc")
@@ -241,27 +256,60 @@ export default function Index() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"] as any,
       allowsEditing: false,
-      quality: 0.8,
+      quality: 0.35,
+      base64: true,
     });
 
     if (result.canceled) return;
 
     const asset = result.assets[0];
 
-    setUploads({
-      ...uploads,
-      [slotKey]: {
-        label,
-        uploadedBy: currentUser.name,
-        status: "Uploaded",
-        time: "Now",
-        uri: asset.uri,
-        fileName: asset.fileName || "Image upload",
-        type: asset.type || "image",
-      },
-    });
+    if (!asset.base64) {
+      Alert.alert("Image issue", "Please choose a smaller image.");
+      return;
+    }
 
-    Alert.alert("Image Added ✨", `${label} image was added.`);
+    const imageUri = `data:image/jpeg;base64,${asset.base64}`;
+
+    const savedUpload = {
+      slotKey,
+      label,
+      uploadedBy: currentUser.name,
+      uploadedByRole: currentUser.role,
+      status: "Uploaded",
+      time: new Date().toLocaleString(),
+      uri: imageUri,
+      fileName: asset.fileName || `${slotKey}.jpg`,
+      type: "image",
+    };
+
+    const updatedUploads = {
+      ...uploads,
+      [slotKey]: savedUpload,
+    };
+
+    setUploads(updatedUploads);
+
+    try {
+      const browserStorage = (globalThis as any)?.localStorage;
+
+      if (!browserStorage) {
+        Alert.alert(
+          "Image Preview Added",
+          "This browser does not support local saving."
+        );
+        return;
+      }
+
+      browserStorage.setItem("tripmuse-uploads", JSON.stringify(updatedUploads));
+      Alert.alert("Image Saved ✨", `${label} image was saved in this browser.`);
+    } catch (error) {
+      console.log("Local save error:", error);
+      Alert.alert(
+        "Image too large",
+        "Please choose a smaller image or screenshot."
+      );
+    }
   }
 
   function renderUploadSlot(slotKey: string, label: string, icon: string) {
@@ -283,7 +331,11 @@ export default function Index() {
         </View>
 
         {upload?.uri && (
-          <Image source={{ uri: upload.uri }} style={styles.uploadPreview} />
+          <Image
+  source={{ uri: upload.uri }}
+  style={styles.uploadPreview}
+  resizeMode="contain"
+/>
         )}
 
         <Pressable
@@ -294,7 +346,7 @@ export default function Index() {
           ]}
         >
           <Text style={styles.uploadActionText}>
-            {upload ? "Replace Image" : "Choose Image"}
+            {upload ? "Replace Saved Image" : "Choose Image"}
           </Text>
         </Pressable>
       </View>
@@ -1128,10 +1180,10 @@ const styles = StyleSheet.create({
   },
 
   uploadPreview: {
-    width: "100%",
-    height: 160,
-    borderRadius: 18,
-    marginTop: 12,
-    backgroundColor: "#FFF8F2",
-  },
+  width: "100%",
+  height: 280,
+  borderRadius: 18,
+  marginTop: 12,
+  backgroundColor: "#FFF8F2",
+},
 });
