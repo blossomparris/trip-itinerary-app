@@ -4,6 +4,7 @@ import {
   Alert,
   Image,
   ImageBackground,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -93,6 +94,37 @@ export default function Index() {
 
     setChatInput("");
   }
+
+function openLocationInMaps(location: string) {
+  if (!location) {
+    Alert.alert("No location", "This event does not have a location yet.");
+    return;
+  }
+
+  const encodedLocation = encodeURIComponent(location);
+  const url = `https://www.google.com/maps/search/?api=1&query=${encodedLocation}`;
+
+  Linking.openURL(url);
+}
+
+function openDailyRouteInMaps() {
+  const routeLocations = visibleEvents
+    .map((event: any) => event.location)
+    .filter(Boolean);
+
+  if (routeLocations.length === 0) {
+    Alert.alert("No route", "This day does not have locations yet.");
+    return;
+  }
+
+  const routePath = routeLocations
+    .map((location: string) => encodeURIComponent(location))
+    .join("/");
+
+  const url = `https://www.google.com/maps/dir/${routePath}`;
+
+  Linking.openURL(url);
+}
 
   function sendAnnouncement() {
     if (!currentUser) return;
@@ -396,11 +428,78 @@ export default function Index() {
           )}
 
           {tab === "Map" && (
-            <View style={styles.mapCard}>
-              <Text style={styles.cardTitle}>Daily Route 🗺️</Text>
-              <Text style={styles.muted}>Google Maps connects here soon.</Text>
+  <View>
+    <View style={styles.mapHero}>
+      <Text style={styles.cardLabel}>Map Preview</Text>
+      <Text style={styles.cardTitle}>Daily Route 🗺️</Text>
+      <Text style={styles.muted}>
+        Showing visible locations for {selectedDay.day}.
+      </Text>
+
+      <Pressable onPress={openDailyRouteInMaps} style={styles.routeButton}>
+        <Text style={styles.primaryText}>Open Daily Route in Google Maps</Text>
+      </Pressable>
+    </View>
+
+    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+      {days.map((day: any, index: number) => (
+        <Pressable
+          key={day.id}
+          onPress={() => setSelectedDayIndex(index)}
+          style={[
+            styles.dayPill,
+            selectedDayIndex === index && styles.activeDayPill,
+          ]}
+        >
+          <Text style={styles.dayPillText}>{day.date}</Text>
+          <Text style={styles.dayPillSmall}>{day.day}</Text>
+        </Pressable>
+      ))}
+    </ScrollView>
+
+    {visibleEvents.length === 0 ? (
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>No map locations</Text>
+        <Text style={styles.muted}>
+          This day has no visible events with locations.
+        </Text>
+      </View>
+    ) : (
+      visibleEvents.map((event: any) => (
+        <View key={event.id} style={styles.locationCard}>
+          <View style={styles.locationTopRow}>
+            <Text style={styles.locationIcon}>
+              {event.type === "flight"
+                ? "✈️"
+                : event.type === "dinner"
+                ? "🍽️"
+                : event.type === "nightlife"
+                ? "🍸"
+                : event.type === "festival"
+                ? "🎶"
+                : "📍"}
+            </Text>
+
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>{event.title}</Text>
+              <Text style={styles.locationMeta}>
+                {selectedDay.date} {event.time ? `· ${event.time}` : ""}
+              </Text>
+              <Text style={styles.muted}>{event.location}</Text>
             </View>
-          )}
+          </View>
+
+          <Pressable
+            onPress={() => openLocationInMaps(event.location)}
+            style={styles.outlineButton}
+          >
+            <Text style={styles.outlineButtonText}>Open Location</Text>
+          </Pressable>
+        </View>
+      ))
+    )}
+  </View>
+)}
         </ScrollView>
       </LinearGradient>
     </ImageBackground>
@@ -751,5 +850,59 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     padding: 20,
     marginBottom: 16,
+  },
+  mapHero: {
+    backgroundColor: colors.sky,
+    borderRadius: 30,
+    padding: 22,
+    marginBottom: 16,
+  },
+
+  routeButton: {
+    backgroundColor: colors.ocean,
+    borderRadius: 999,
+    padding: 16,
+    alignItems: "center",
+    marginTop: 18,
+  },
+
+  locationCard: {
+    backgroundColor: colors.white,
+    borderRadius: 28,
+    padding: 20,
+    marginBottom: 16,
+    borderLeftWidth: 5,
+    borderLeftColor: colors.ocean,
+  },
+
+  locationTopRow: {
+    flexDirection: "row",
+    gap: 14,
+    alignItems: "flex-start",
+  },
+
+  locationIcon: {
+    fontSize: 30,
+    marginTop: 2,
+  },
+
+  locationMeta: {
+    color: colors.terracotta,
+    fontWeight: "800",
+    marginTop: 4,
+  },
+
+  outlineButton: {
+    marginTop: 16,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.ocean,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+
+  outlineButtonText: {
+    color: colors.ocean,
+    fontWeight: "900",
   },
 });
