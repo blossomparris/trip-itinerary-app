@@ -479,7 +479,7 @@ export default function Index() {
   resizeMode="repeat"
 >
         <LinearGradient colors={["#FFF8F2EE", "#FFF8F2DD"]} style={styles.wrap}>
-          <ScrollView contentContainerStyle={styles.container}>
+          <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
             <Text style={styles.logo}>🍋 EuroSummer2026</Text>
             <Text style={styles.title}>Euro Summer 2026</Text>
             <Text style={styles.subtitle}>
@@ -546,7 +546,7 @@ export default function Index() {
   resizeMode="repeat"
 >
       <LinearGradient colors={["#FFF8F2F5", "#FFF8F2E8"]} style={styles.wrap}>
-        <ScrollView contentContainerStyle={styles.app}>
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.app}>
           <Image source={santoriniMoodboard} style={styles.heroImage} />
 
           <Text style={styles.logo}>🍋 EuroSummer2026</Text>
@@ -951,6 +951,7 @@ function MiniCard({ title, value, icon }: any) {
 const styles = StyleSheet.create({
   bg: {
     flex: 1,
+    width: "100%",
     backgroundColor: "#FFF8F2",
   },
 
@@ -960,23 +961,31 @@ const styles = StyleSheet.create({
 
   wrap: {
     flex: 1,
+    width: "100%",
+  },
+
+  scroll: {
+    flex: 1,
+    width: "100%",
   },
 
   container: {
+    flexGrow: 1,
     paddingHorizontal: 16,
-    paddingTop: 44,
-    paddingBottom: 80,
+    paddingTop: 86,
+    paddingBottom: 120,
     width: "100%",
-    maxWidth: 760,
+    maxWidth: 430,
     alignSelf: "center",
   },
 
   app: {
+    flexGrow: 1,
     paddingHorizontal: 16,
-    paddingTop: 24,
-    paddingBottom: 120,
+    paddingTop: 86,
+    paddingBottom: 150,
     width: "100%",
-    maxWidth: 760,
+    maxWidth: 430,
     alignSelf: "center",
   },
 
@@ -1100,8 +1109,10 @@ const styles = StyleSheet.create({
   tabs: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
+    gap: 7,
     marginBottom: 18,
+    width: "100%",
+    justifyContent: "center",
   },
 
   tab: {
