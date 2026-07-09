@@ -1,3 +1,4 @@
+import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { useState } from "react";
 import {
@@ -128,8 +129,29 @@ function openDailyRouteInMaps() {
   Linking.openURL(url);
 }
 
-function markUploadSlot(slotKey: string, label: string) {
+async function pickUploadImage(slotKey: string, label: string) {
   if (!currentUser) return;
+
+  const permissionResult =
+    await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+  if (!permissionResult.granted) {
+    Alert.alert(
+      "Permission needed",
+      "Please allow photo access so you can upload images."
+    );
+    return;
+  }
+
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ["images"] as any,
+    allowsEditing: false,
+    quality: 0.8,
+  });
+
+  if (result.canceled) return;
+
+  const asset = result.assets[0];
 
   setUploads({
     ...uploads,
@@ -138,10 +160,13 @@ function markUploadSlot(slotKey: string, label: string) {
       uploadedBy: currentUser.name,
       status: "Uploaded",
       time: "Now",
+      uri: asset.uri,
+      fileName: asset.fileName || "Image upload",
+      type: asset.type || "image",
     },
   });
 
-  Alert.alert("Upload Saved ✨", `${label} slot marked as uploaded.`);
+  Alert.alert("Image Added ✨", `${label} image was added.`);
 }
 
 function renderUploadSlot(slotKey: string, label: string, icon: string) {
@@ -157,25 +182,30 @@ function renderUploadSlot(slotKey: string, label: string, icon: string) {
           <Text style={styles.uploadStatus}>
             {upload
               ? `Uploaded by ${upload.uploadedBy} · ${upload.time}`
-              : "No file uploaded yet"}
+              : "No image uploaded yet"}
           </Text>
         </View>
       </View>
 
+      {upload?.uri && (
+        <Image source={{ uri: upload.uri }} style={styles.uploadPreview} />
+      )}
+
       <Pressable
-        onPress={() => markUploadSlot(slotKey, label)}
+        onPress={() => pickUploadImage(slotKey, label)}
         style={[
           styles.uploadActionButton,
           upload && styles.uploadActionButtonDone,
         ]}
       >
         <Text style={styles.uploadActionText}>
-          {upload ? "Replace Upload" : "Add Upload"}
+          {upload ? "Replace Image" : "Choose Image"}
         </Text>
       </Pressable>
     </View>
   );
 }
+
 
   function sendAnnouncement() {
     if (!currentUser) return;
@@ -1014,5 +1044,13 @@ const styles = StyleSheet.create({
   uploadActionText: {
     color: colors.white,
     fontWeight: "900",
+  },
+
+    uploadPreview: {
+    width: "100%",
+    height: 160,
+    borderRadius: 18,
+    marginTop: 12,
+    backgroundColor: "#FFF8F2",
   },
 });
