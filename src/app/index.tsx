@@ -176,6 +176,14 @@ export default function Index() {
     });
   }
 
+  function signOut() {
+    setCurrentUser(null);
+    setSelectedMember(null);
+    setPhone("");
+    setTab("Dashboard");
+    setSelectedDayIndex(0);
+  }
+
   function canSeeEvent(event: any, user: any) {
     if (!user) return false;
     if (user.role === "OWNER") return true;
@@ -312,6 +320,30 @@ export default function Index() {
     }
   }
 
+  function deleteUpload(slotKey: string) {
+    const updatedUploads = { ...uploads };
+    delete updatedUploads[slotKey];
+
+    setUploads(updatedUploads);
+
+    try {
+      const browserStorage = (globalThis as any)?.localStorage;
+      if (browserStorage) {
+        browserStorage.setItem(
+          "tripmuse-uploads",
+          JSON.stringify(updatedUploads)
+        );
+      }
+
+      Alert.alert(
+        "Upload Removed",
+        "The saved image was removed from this browser."
+      );
+    } catch (error) {
+      console.log("Delete upload error:", error);
+    }
+  }
+
   function renderUploadSlot(slotKey: string, label: string, icon: string) {
     const upload = uploads[slotKey];
 
@@ -332,10 +364,10 @@ export default function Index() {
 
         {upload?.uri && (
           <Image
-  source={{ uri: upload.uri }}
-  style={styles.uploadPreview}
-  resizeMode="contain"
-/>
+            source={{ uri: upload.uri }}
+            style={styles.uploadPreview}
+            resizeMode="contain"
+          />
         )}
 
         <Pressable
@@ -349,6 +381,15 @@ export default function Index() {
             {upload ? "Replace Saved Image" : "Choose Image"}
           </Text>
         </Pressable>
+
+        {upload && (
+          <Pressable
+            onPress={() => deleteUpload(slotKey)}
+            style={styles.deleteUploadButton}
+          >
+            <Text style={styles.deleteUploadText}>Delete Upload</Text>
+          </Pressable>
+        )}
       </View>
     );
   }
@@ -450,6 +491,10 @@ export default function Index() {
             Signed in as {currentUser.name} · {currentUser.role}
           </Text>
 
+          <Pressable onPress={signOut} style={styles.signOutButton}>
+            <Text style={styles.signOutText}>Sign Out</Text>
+          </Pressable>
+
           <View style={styles.tabs}>
             {["Dashboard", "Itinerary", "Chat", "Announcements", "Map"].map(
               (item) => (
@@ -488,6 +533,37 @@ export default function Index() {
                   {selectedDay.outfit.description}
                 </Text>
               </View>
+
+              {currentUser.role === "OWNER" && (
+                <View style={styles.ownerCard}>
+                  <Text style={styles.cardLabel}>Owner Controls</Text>
+                  <Text style={styles.cardTitle}>Trip Admin 👑</Text>
+                  <Text style={styles.muted}>
+                    You can send announcements, manage uploads, and view private
+                    events.
+                  </Text>
+
+                  <View style={styles.ownerActions}>
+                    <Pressable
+                      onPress={() => setTab("Announcements")}
+                      style={styles.ownerButton}
+                    >
+                      <Text style={styles.ownerButtonText}>
+                        Send Announcement
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      onPress={() => setTab("Itinerary")}
+                      style={styles.ownerButtonLight}
+                    >
+                      <Text style={styles.ownerButtonLightText}>
+                        Manage Uploads
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              )}
             </>
           )}
 
@@ -841,6 +917,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
 
+  signOutButton: {
+    backgroundColor: colors.white,
+    borderRadius: 999,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    alignSelf: "flex-start",
+    marginBottom: 18,
+  },
+
+  signOutText: {
+    color: colors.terracotta,
+    fontWeight: "900",
+  },
+
   tabs: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -911,6 +1001,46 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     color: colors.text,
     marginTop: 6,
+  },
+
+  ownerCard: {
+    backgroundColor: "#FFF6EF",
+    borderRadius: 28,
+    padding: 20,
+    marginBottom: 16,
+    borderLeftWidth: 5,
+    borderLeftColor: colors.terracotta,
+  },
+
+  ownerActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 16,
+  },
+
+  ownerButton: {
+    backgroundColor: colors.terracotta,
+    borderRadius: 999,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+
+  ownerButtonText: {
+    color: colors.white,
+    fontWeight: "900",
+  },
+
+  ownerButtonLight: {
+    backgroundColor: colors.white,
+    borderRadius: 999,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+
+  ownerButtonLightText: {
+    color: colors.terracotta,
+    fontWeight: "900",
   },
 
   dayPill: {
@@ -1179,11 +1309,25 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
 
+  deleteUploadButton: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.terracotta,
+    paddingVertical: 10,
+    alignItems: "center",
+    marginTop: 10,
+  },
+
+  deleteUploadText: {
+    color: colors.terracotta,
+    fontWeight: "900",
+  },
+
   uploadPreview: {
-  width: "100%",
-  height: 280,
-  borderRadius: 18,
-  marginTop: 12,
-  backgroundColor: "#FFF8F2",
-},
+    width: "100%",
+    height: 280,
+    borderRadius: 18,
+    marginTop: 12,
+    backgroundColor: "#FFF8F2",
+  },
 });
