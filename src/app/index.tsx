@@ -1,6 +1,16 @@
 import * as ImagePicker from "expo-image-picker";
+import {
+  addDoc,
+  collection,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+} from "firebase/firestore";
+import { db } from "../services/firebase";
+
 import { LinearGradient } from "expo-linear-gradient";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   Image,
@@ -14,7 +24,7 @@ import {
   View,
 } from "react-native";
 import { colors } from "../constants/theme";
-import { days, members } from "../data/tripData";
+import { days } from "../data/tripData";
 
 const citrusPattern = require("../../assets/images/citrus-pattern.png");
 const santoriniMoodboard = require("../../assets/images/santorini-moodboard.png");
@@ -57,6 +67,62 @@ export default function Index() {
 
 const [uploads, setUploads] = useState<any>({});
 
+useEffect(() => {
+  const chatQuery = query(
+    collection(db, "tripmuse-chat"),
+    orderBy("createdAt", "asc")
+  );
+
+  const unsubscribeChat = onSnapshot(chatQuery, (snapshot) => {
+    const firebaseMessages = snapshot.docs.map((docSnapshot: any) => {
+      const data = docSnapshot.data();
+
+      return {
+        id: docSnapshot.id,
+        sender: data.sender,
+        text: data.text,
+        time: data.createdAt?.toDate
+          ? data.createdAt.toDate().toLocaleTimeString([], {
+              hour: "numeric",
+              minute: "2-digit",
+            })
+          : "Now",
+      };
+    });
+
+    setChatMessages(firebaseMessages);
+  });
+
+  const announcementQuery = query(
+    collection(db, "tripmuse-announcements"),
+    orderBy("createdAt", "desc")
+  );
+
+  const unsubscribeAnnouncements = onSnapshot(
+    announcementQuery,
+    (snapshot) => {
+      const firebaseAnnouncements = snapshot.docs.map((docSnapshot: any) => {
+        const data = docSnapshot.data();
+
+        return {
+          id: docSnapshot.id,
+          sender: data.sender,
+          title: data.title,
+          body: data.body,
+          audience: data.audience,
+        };
+      });
+
+      setAnnouncements(firebaseAnnouncements);
+    }
+  );
+
+  return () => {
+    unsubscribeChat();
+    unsubscribeAnnouncements();
+  };
+}, []);
+
   function signIn() {
     if (!selectedMember) {
       Alert.alert("Choose your name");
@@ -81,22 +147,25 @@ const [uploads, setUploads] = useState<any>({});
     return event.attendees?.includes(user.name);
   }
 
-  function sendChatMessage() {
-    if (!currentUser) return;
-    if (!chatInput.trim()) return;
+  async function sendChatMessage() {
+  if (!currentUser) return;
+  if (!chatInput.trim()) return;
 
-    setChatMessages([
-      ...chatMessages,
-      {
-        id: `msg-${Date.now()}`,
-        sender: currentUser.name,
-        text: chatInput,
-        time: "Now",
-      },
-    ]);
+  const messageText = chatInput;
+  setChatInput("");
 
-    setChatInput("");
+  try {
+    await addDoc(collection(db, "tripmuse-chat"), {
+      sender: currentUser.name,
+      senderRole: currentUser.role,
+      text: messageText,
+      createdAt: serverTimestamp(),
+    });
+  } catch (error) {
+    Alert.alert("Message not sent", "Please try again.");
+    console.log(error);
   }
+}
 
 function openLocationInMaps(location: string) {
   if (!location) {
@@ -206,78 +275,39 @@ function renderUploadSlot(slotKey: string, label: string, icon: string) {
   );
 }
 
+async function sendAnnouncement() {
+  if (!currentUser) return;
 
-  function sendAnnouncement() {
-    if (!currentUser) return;
+  if (currentUser.role !== "OWNER") {
+    Alert.alert(
+      "Owner Only",
+      "Only Blossom, Simone, and Kacper can send announcements."
+    );
+    return;
+  }
 
-    if (currentUser.role !== "OWNER") {
-      Alert.alert(
-        "Owner Only",
-        "Only Blossom, Simone, and Kacper can send announcements."
-      );
-      return;
-    }
+  if (!announcementInput.trim()) return;
 
-    if (!announcementInput.trim()) return;
+  const announcementText = announcementInput;
+  setAnnouncementInput("");
 
-    setAnnouncements([
-      {
-        id: `ann-${Date.now()}`,
-        sender: currentUser.name,
-        title: "Trip Update",
-        body: announcementInput,
-        audience: announcementAudience,
-      },
-      ...announcements,
-    ]);
+  try {
+    await addDoc(collection(db, "tripmuse-announcements"), {
+      sender: currentUser.name,
+      senderRole: currentUser.role,
+      title: "Trip Update",
+      body: announcementText,
+      audience: announcementAudience,
+      createdAt: serverTimestamp(),
+    });
 
     Alert.alert("Blast Sent ✨", `Announcement sent to ${announcementAudience}.`);
-    setAnnouncementInput("");
+  } catch (error) {
+    Alert.alert("Announcement not sent", "Please try again.");
+    console.log(error);
   }
-
-  if (!currentUser) {
-    return (
-      <ImageBackground source={citrusPattern} style={styles.bg}>
-        <LinearGradient colors={["#FFF8F2EE", "#FFF8F2DD"]} style={styles.wrap}>
-          <ScrollView contentContainerStyle={styles.container}>
-            <Text style={styles.logo}>🍋 TripMuse</Text>
-            <Text style={styles.title}>Euro Summer 2026</Text>
-            <Text style={styles.subtitle}>
-              Select your name and enter your phone number.
-            </Text>
-
-            {members.map((person: any) => (
-              <Pressable
-                key={person.id}
-                onPress={() => setSelectedMember(person)}
-                style={[
-                  styles.memberButton,
-                  selectedMember?.id === person.id && styles.selected,
-                ]}
-              >
-                <Text style={styles.memberText}>
-                  {person.role === "OWNER" ? "👑 " : "☀️ "}
-                  {person.name}
-                </Text>
-              </Pressable>
-            ))}
-
-            <TextInput
-              value={phone}
-              onChangeText={setPhone}
-              keyboardType="phone-pad"
-              placeholder="Phone number"
-              style={styles.input}
-            />
-
-            <Pressable onPress={signIn} style={styles.primaryButton}>
-              <Text style={styles.primaryText}>Enter Trip ✈️</Text>
-            </Pressable>
-          </ScrollView>
-        </LinearGradient>
-      </ImageBackground>
-    );
-  }
+}
+ 
 
   const selectedDay = days[selectedDayIndex];
   const visibleEvents = selectedDay.events.filter((event: any) =>
