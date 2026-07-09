@@ -1,6 +1,5 @@
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
-import { getMessaging, getToken, isSupported, onMessage } from "firebase/messaging";
 import {
   addDoc,
   collection,
@@ -28,12 +27,11 @@ import {
 
 import { colors } from "../constants/theme";
 import { days, members } from "../data/tripData";
-import { app, db } from "../services/firebase";
+import { db } from "../services/firebase";
 
 const citrusPattern = require("../../assets/images/citrus-pattern.png");
 const santoriniMoodboard = require("../../assets/images/santorini-moodboard.png");
 
-const FIREBASE_WEB_PUSH_VAPID_KEY = "BHYz66ruWjIVv8pqJLPqvIwk27m1HjDgTg0A0qSFkd3kIwWucWqzOlN88FrA7xnsPyn98zanmNGg0wwh8QeKPoI";
 
 const travelerPhoneLast4: any = {
   blossom: "6249",
@@ -1080,7 +1078,7 @@ export default function Index() {
 
         <View style={styles.pushPermissionBox}>
           <Text style={styles.notificationSectionTitle}>
-            Phone Push Notifications
+            Free App Notifications
           </Text>
           <Text style={styles.notificationEmptyText}>{getPushStatusMessage()}</Text>
 
@@ -1092,7 +1090,7 @@ export default function Index() {
             ]}
           >
             <Text style={styles.pushPermissionButtonText}>
-              {pushStatus === "ON" ? "Push Notifications On" : "Turn On Push Notifications"}
+              {pushStatus === "ON" ? "Free Notifications On" : "Turn On Free Notifications"}
             </Text>
           </Pressable>
         </View>
@@ -1212,55 +1210,79 @@ export default function Index() {
   }, [announcements, currentUser?.id, seenAnnouncementIds]);
 
 
-  function getPushTokenDocId(token: string) {
-    return token.replace(/\//g, "_slash_");
+
+  function getFreeNotificationKey() {
+    return currentUser?.id ? `eurosummer-free-notifications-${currentUser.id}` : "";
+  }
+
+  function getFreeNotificationSentKey(notificationId: string) {
+    return currentUser?.id
+      ? `eurosummer-free-notification-sent-${currentUser.id}-${notificationId}`
+      : "";
   }
 
   function getPushStatusMessage() {
-    if (pushStatus === "ON") return "Push notifications are on for this browser.";
-    if (pushStatus === "REQUESTING") return "Asking this browser for notification access...";
-    if (pushStatus === "DENIED") return "Notifications are blocked in this browser.";
-    if (pushStatus === "UNSUPPORTED") return "Push notifications are not supported in this browser.";
-    if (FIREBASE_WEB_PUSH_VAPID_KEY.includes("PASTE_YOUR")) {
-      return "Push setup needs the Firebase Web Push certificate key first.";
+    if (pushStatus === "ON") {
+      return "Free notifications are on while this app is open.";
     }
-    return "Turn on notifications for announcements and event reminders.";
+
+    if (pushStatus === "REQUESTING") {
+      return "Asking this browser for notification access...";
+    }
+
+    if (pushStatus === "DENIED") {
+      return "Notifications are blocked in this browser.";
+    }
+
+    if (pushStatus === "UNSUPPORTED") {
+      return "Free browser notifications are not supported in this browser.";
+    }
+
+    return "Turn on free notifications for alerts while this app is open.";
+  }
+
+  function showFreeBrowserNotification(notificationId: string, title: string, body: string) {
+    if (pushStatus !== "ON") return;
+
+    if (
+      typeof window === "undefined" ||
+      typeof localStorage === "undefined" ||
+      !("Notification" in window) ||
+      Notification.permission !== "granted"
+    ) {
+      return;
+    }
+
+    const sentKey = getFreeNotificationSentKey(notificationId);
+
+    if (!sentKey || localStorage.getItem(sentKey) === "YES") return;
+
+    localStorage.setItem(sentKey, "YES");
+
+    try {
+      new Notification(title, {
+        body,
+        icon: "/icon.png",
+      });
+    } catch (error) {
+      console.log("Free notification error:", error);
+    }
   }
 
   async function enablePushNotifications() {
     if (!currentUser?.id) return;
 
-    if (FIREBASE_WEB_PUSH_VAPID_KEY.includes("PASTE_YOUR")) {
-      Alert.alert(
-        "Firebase key needed",
-        "Add your Firebase Web Push certificate key, then redeploy."
-      );
-      return;
-    }
-
     try {
-      setPushStatus("REQUESTING");
-
-      if (typeof window === "undefined" || typeof navigator === "undefined") {
-        setPushStatus("UNSUPPORTED");
-        Alert.alert("Not supported", "Push notifications must be enabled in a browser.");
-        return;
-      }
-
-      const supported = await isSupported();
-
-      if (
-        !supported ||
-        !("Notification" in window) ||
-        !("serviceWorker" in navigator)
-      ) {
+      if (typeof window === "undefined" || !("Notification" in window)) {
         setPushStatus("UNSUPPORTED");
         Alert.alert(
           "Not supported",
-          "This browser does not support web push notifications."
+          "This browser does not support free app notifications."
         );
         return;
       }
+
+      setPushStatus("REQUESTING");
 
       let permission = Notification.permission;
 
@@ -1277,139 +1299,133 @@ export default function Index() {
         return;
       }
 
-      const serviceWorkerRegistration =
-        await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+      const preferenceKey = getFreeNotificationKey();
 
-      const messaging = getMessaging(app);
-      const token = await getToken(messaging, {
-        vapidKey: FIREBASE_WEB_PUSH_VAPID_KEY,
-        serviceWorkerRegistration,
-      });
-
-      if (!token) {
-        setPushStatus("OFF");
-        Alert.alert(
-          "Token not created",
-          "Please try again after refreshing the app."
-        );
-        return;
+      if (preferenceKey && typeof localStorage !== "undefined") {
+        localStorage.setItem(preferenceKey, "ON");
       }
 
-      const tokenDocId = getPushTokenDocId(token);
-
-      await setDoc(
-        doc(db, "tripmuse-push-tokens", tokenDocId),
-        {
-          token,
-          userId: currentUser.id,
-          userName: currentUser.name,
-          userRole: currentUser.role,
-          enabled: true,
-          source: "web-pwa",
-          userAgent:
-            typeof navigator !== "undefined" ? navigator.userAgent : "",
-          updatedAt: serverTimestamp(),
-          createdAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
-
-      setPushToken(token);
       setPushStatus("ON");
 
+      try {
+        new Notification("EuroSummer2026 🔔", {
+          body: "Free notifications are on while the app is open.",
+          icon: "/icon.png",
+        });
+      } catch (error) {
+        console.log("Welcome notification error:", error);
+      }
+
       Alert.alert(
-        "Push Notifications On 🔔",
-        "You can now receive announcement and event reminder notifications on this device."
+        "Free Notifications On 🔔",
+        "You will get free announcement and event reminders while this app is open."
       );
     } catch (error) {
-      console.log("Push enable error:", error);
+      console.log("Free notification setup error:", error);
       setPushStatus("OFF");
       Alert.alert(
-        "Push setup issue",
-        "Push notifications could not be enabled. Try again after refreshing."
+        "Notification setup issue",
+        "Notifications could not be enabled. Try again after refreshing."
       );
     }
   }
 
-  async function syncEventPushReminders() {
-    if (!currentUser || currentUser.role !== "OWNER") return;
+  function checkFreeEventReminders() {
+    if (!currentUser?.id || pushStatus !== "ON") return;
 
-    try {
-      for (const day of days) {
-        const dayEvents = getEventsForDay(day).filter((event: any) =>
-          canSeeEvent(event, currentUser)
-        );
+    const now = Date.now();
 
-        for (const event of dayEvents) {
-          const eventDate = parseTripEventDateTime(day, event);
+    days.forEach((day: any) => {
+      const dayEvents = getEventsForDay(day).filter((event: any) =>
+        canSeeEvent(event, currentUser)
+      );
 
-          if (!eventDate) continue;
-          if (eventDate.getTime() < Date.now()) continue;
+      dayEvents.forEach((event: any) => {
+        const eventDate = parseTripEventDateTime(day, event);
 
-          await setDoc(
-            doc(db, "tripmuse-event-reminders", `${day.id}-${event.id}`),
-            {
-              eventId: event.id,
-              dayId: day.id,
-              dayLabel: day.day,
-              dateLabel: day.date,
-              title: event.title || "Trip Event",
-              time: event.time || "",
-              location: event.location || "",
-              group: event.group || "EVERYONE",
-              attendees: event.attendees || [],
-              eventAtMillis: eventDate.getTime(),
-              eventAtIso: eventDate.toISOString(),
-              reminder24Sent: false,
-              reminder2Sent: false,
-              updatedAt: serverTimestamp(),
-            },
-            { merge: true }
+        if (!eventDate) return;
+
+        const msUntil = eventDate.getTime() - now;
+
+        if (msUntil <= 0) return;
+
+        const eventTitle = event.title || "Trip event";
+        const eventTime = event.time ? ` at ${event.time}` : "";
+        const eventLocation = event.location ? ` · ${event.location}` : "";
+        const eventBody = `${eventTitle}${eventTime}${eventLocation}`;
+
+        if (msUntil <= 24 * 60 * 60 * 1000) {
+          showFreeBrowserNotification(
+            `event-24-${day.id}-${event.id}`,
+            "Event Reminder ✨",
+            eventBody
           );
         }
-      }
-    } catch (error) {
-      console.log("Event push reminder sync error:", error);
-    }
+
+        if (msUntil <= 2 * 60 * 60 * 1000) {
+          showFreeBrowserNotification(
+            `event-2-${day.id}-${event.id}`,
+            "Event Coming Up Soon ⏰",
+            eventBody
+          );
+        }
+      });
+    });
   }
 
   useEffect(() => {
     if (!currentUser?.id) return;
 
-    let unsubscribeForegroundMessages: any = null;
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      setPushStatus("UNSUPPORTED");
+      return;
+    }
 
-    isSupported()
-      .then((supported) => {
-        if (!supported) return;
+    const preferenceKey = getFreeNotificationKey();
+    const savedPreference =
+      typeof localStorage !== "undefined"
+        ? localStorage.getItem(preferenceKey)
+        : "";
 
-        const messaging = getMessaging(app);
-
-        unsubscribeForegroundMessages = onMessage(messaging, (payload: any) => {
-          const title = payload?.notification?.title || "EuroSummer2026";
-          const body =
-            payload?.notification?.body ||
-            payload?.data?.body ||
-            "You have a new trip update.";
-
-          Alert.alert(title, body);
-        });
-      })
-      .catch((error) => {
-        console.log("Foreground push listener error:", error);
-      });
-
-    return () => {
-      if (unsubscribeForegroundMessages) {
-        unsubscribeForegroundMessages();
-      }
-    };
+    if (savedPreference === "ON" && Notification.permission === "granted") {
+      setPushStatus("ON");
+    } else if (Notification.permission === "denied") {
+      setPushStatus("DENIED");
+    } else {
+      setPushStatus("OFF");
+    }
   }, [currentUser?.id]);
 
   useEffect(() => {
-    if (!currentUser?.id || currentUser.role !== "OWNER") return;
+    if (!currentUser?.id || pushStatus !== "ON") return;
 
-    syncEventPushReminders();
-  }, [currentUser?.id, customEvents.length, Object.keys(deletedEventIds || {}).join("|")]);
+    const unreadAnnouncements = getUnreadAnnouncements();
+    const latestAnnouncement = unreadAnnouncements[0];
+
+    if (!latestAnnouncement) return;
+
+    showFreeBrowserNotification(
+      `announcement-${getAnnouncementId(latestAnnouncement)}`,
+      latestAnnouncement.title || "Trip Announcement",
+      latestAnnouncement.body || "You have a new EuroSummer2026 announcement."
+    );
+  }, [currentUser?.id, pushStatus, announcements.length]);
+
+  useEffect(() => {
+    if (!currentUser?.id || pushStatus !== "ON") return;
+
+    checkFreeEventReminders();
+
+    const intervalId = setInterval(checkFreeEventReminders, 60 * 1000);
+
+    return () => clearInterval(intervalId);
+  }, [
+    currentUser?.id,
+    pushStatus,
+    selectedDayIndex,
+    customEvents.length,
+    Object.keys(deletedEventIds || {}).join("|"),
+  ]);
 
 
   function signIn() {
