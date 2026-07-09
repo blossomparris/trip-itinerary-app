@@ -1,0 +1,22 @@
+{
+  "name": "EuroSummer2026",
+  "short_name": "ES2026",
+  "description": "EuroSummer2026 trip itinerary",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FFF8F2",
+  "theme_color": "#FFF8F2",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
