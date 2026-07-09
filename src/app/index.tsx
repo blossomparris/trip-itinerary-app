@@ -56,6 +56,19 @@ export default function Index() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [tab, setTab] = useState("Dashboard");
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
+  const [expenses, setExpenses] = useState<any[]>([]);
+  const [expenseTitle, setExpenseTitle] = useState("");
+  const [expenseAmount, setExpenseAmount] = useState("");
+  const [expenseCurrency, setExpenseCurrency] = useState("USD");
+  const [expensePaidBy, setExpensePaidBy] = useState("");
+  const [expenseCovered, setExpenseCovered] = useState<any>({});
+  const [expenseSplitMode, setExpenseSplitMode] = useState("EVEN");
+  const [expenseItemizedAmounts, setExpenseItemizedAmounts] = useState<any>({});
+  const [expensePaymentStatus, setExpensePaymentStatus] = useState("PAID");
+  const [expensePaymentApp, setExpensePaymentApp] = useState("Venmo");
+  const [expensePaymentLink, setExpensePaymentLink] = useState("");
+  const [expenseNotes, setExpenseNotes] = useState("");
+  const [selectedClosetDayIndex, setSelectedClosetDayIndex] = useState(0);
 
   const tripMembers =
     Array.isArray(members) && members.length > 0
@@ -100,6 +113,7 @@ export default function Index() {
 
   const [uploads, setUploads] = useState<any>({});
   const [uploadLabels, setUploadLabels] = useState<any>({});
+  const [uploadVisibility, setUploadVisibility] = useState<any>({});
   const [customEvents, setCustomEvents] = useState<any[]>([]);
   const [deletedEventIds, setDeletedEventIds] = useState<any>({});
   const [selectedClosetMemberId, setSelectedClosetMemberId] = useState(
@@ -123,10 +137,27 @@ export default function Index() {
 
         snapshot.docs.forEach((docSnapshot: any) => {
           const data = docSnapshot.data();
-          uploadMap[docSnapshot.id] = {
+          const slotKey = data.slotKey || docSnapshot.id;
+
+          const uploadRecord = {
             id: docSnapshot.id,
+            docId: docSnapshot.id,
             ...data,
           };
+
+          if (!uploadMap[slotKey]) {
+            uploadMap[slotKey] = [];
+          }
+
+          uploadMap[slotKey].push(uploadRecord);
+        });
+
+        Object.keys(uploadMap).forEach((slotKey) => {
+          uploadMap[slotKey].sort((a: any, b: any) => {
+            const aTime = a.createdAt?.seconds || 0;
+            const bTime = b.createdAt?.seconds || 0;
+            return aTime - bTime;
+          });
         });
 
         setUploads(uploadMap);
@@ -287,6 +318,311 @@ export default function Index() {
       unsubscribeDeletedEvents();
     };
   }, []);
+
+  useEffect(() => {
+    const expenseQuery = query(
+      collection(db, "tripmuse-expenses"),
+      orderBy("createdAt", "desc")
+    );
+
+    const unsubscribeExpenses = onSnapshot(
+      expenseQuery,
+      (snapshot) => {
+        const firebaseExpenses = snapshot.docs.map((docSnapshot: any) => {
+          const data = docSnapshot.data();
+
+          return {
+            id: docSnapshot.id,
+            title: data.title || "Expense",
+            amount: Number(data.amount || 0),
+            currency: data.currency || "USD",
+            paidById: data.paidById,
+            paidByName: data.paidByName,
+            coveredIds: Array.isArray(data.coveredIds) ? data.coveredIds : [],
+            coveredNames: Array.isArray(data.coveredNames) ? data.coveredNames : [],
+            splitMode: data.splitMode || "EVEN",
+            itemizedAmounts: data.itemizedAmounts || {},
+            paymentStatus: data.paymentStatus || "PAID",
+            paymentApp: data.paymentApp || "",
+            paymentLink: data.paymentLink || "",
+            notes: data.notes || "",
+            createdById: data.createdById,
+            createdByName: data.createdByName,
+            createdAtLabel: data.createdAt?.toDate
+              ? data.createdAt.toDate().toLocaleString()
+              : data.createdAtLabel || "Now",
+          };
+        });
+
+        setExpenses(firebaseExpenses);
+      },
+      (error) => {
+        console.log("Expense listener error:", error);
+      }
+    );
+
+    return () => {
+      unsubscribeExpenses();
+    };
+  }, []);
+
+
+  function getTravelerNameById(id: string) {
+    const traveler = tripMembers.find((person: any) => person.id === id);
+    return traveler?.name || id;
+  }
+
+  function formatMoney(value: any, currency = "USD") {
+    const amount = Number(value || 0);
+    const symbol = currency === "EUR" ? "€" : "$";
+    return `${symbol}${amount.toFixed(2)}`;
+  }
+
+  function toggleExpenseCovered(travelerId: string) {
+    setExpenseCovered((previous: any) => ({
+      ...previous,
+      [travelerId]: !previous?.[travelerId],
+    }));
+  }
+
+  function updateItemizedAmount(travelerId: string, value: string) {
+    setExpenseItemizedAmounts((previous: any) => ({
+      ...previous,
+      [travelerId]: value,
+    }));
+  }
+
+  function selectedExpenseCoveredIds() {
+    const selectedCoveredIds = Object.keys(expenseCovered || {}).filter(
+      (travelerId) => expenseCovered[travelerId]
+    );
+
+    return selectedCoveredIds.length > 0
+      ? selectedCoveredIds
+      : [expensePaidBy || currentUser?.id].filter(Boolean);
+  }
+
+  function getExpenseShares(expense: any) {
+    const amount = Number(expense.amount || 0);
+    const coveredIds = Array.isArray(expense.coveredIds) ? expense.coveredIds : [];
+    const itemizedAmounts = expense.itemizedAmounts || {};
+    const shares: any = {};
+
+    if (!amount || coveredIds.length === 0) return shares;
+
+    if (expense.splitMode === "ITEMIZED") {
+      coveredIds.forEach((travelerId: string) => {
+        shares[travelerId] = Number(itemizedAmounts[travelerId] || 0);
+      });
+    } else {
+      const share = amount / coveredIds.length;
+      coveredIds.forEach((travelerId: string) => {
+        shares[travelerId] = share;
+      });
+    }
+
+    return shares;
+  }
+
+  async function addExpense() {
+    if (!currentUser || !currentUser.name) return;
+
+    const amount = Number(String(expenseAmount).replace(/[^0-9.]/g, ""));
+    const paidById = expensePaidBy || currentUser.id;
+    const paidByName = getTravelerNameById(paidById);
+    const coveredIds = selectedExpenseCoveredIds();
+    const coveredNames = coveredIds.map(getTravelerNameById);
+
+    const cleanItemizedAmounts: any = {};
+    coveredIds.forEach((travelerId: string) => {
+      cleanItemizedAmounts[travelerId] = Number(
+        String(expenseItemizedAmounts?.[travelerId] || "0").replace(/[^0-9.]/g, "")
+      );
+    });
+
+    const itemizedTotal = Object.values(cleanItemizedAmounts).reduce(
+      (sum: any, value: any) => Number(sum) + Number(value || 0),
+      0
+    );
+
+    if (!expenseTitle.trim()) {
+      Alert.alert("Add a description", "Example: Zuma dinner, taxi, groceries, tickets.");
+      return;
+    }
+
+    if (!amount || amount <= 0) {
+      Alert.alert("Add an amount", "Enter the total amount paid.");
+      return;
+    }
+
+    if (coveredIds.length === 0) {
+      Alert.alert("Choose travelers", "Select who was covered by this expense.");
+      return;
+    }
+
+    if (expenseSplitMode === "ITEMIZED" && Math.abs(Number(itemizedTotal) - amount) > 0.01) {
+      Alert.alert(
+        "Itemized amounts do not match",
+        `Your itemized total is ${formatMoney(itemizedTotal, expenseCurrency)}, but the bill total is ${formatMoney(amount, expenseCurrency)}.`
+      );
+      return;
+    }
+
+    try {
+      await addDoc(collection(db, "tripmuse-expenses"), {
+        title: expenseTitle.trim(),
+        amount,
+        currency: expenseCurrency,
+        paidById,
+        paidByName,
+        coveredIds,
+        coveredNames,
+        splitMode: expenseSplitMode,
+        itemizedAmounts: expenseSplitMode === "ITEMIZED" ? cleanItemizedAmounts : {},
+        paymentStatus: expensePaymentStatus,
+        paymentApp: expensePaymentApp,
+        paymentLink: expensePaymentLink.trim(),
+        notes: expenseNotes.trim(),
+        createdById: currentUser.id,
+        createdByName: currentUser.name,
+        createdAtLabel: new Date().toLocaleString(),
+        createdAt: serverTimestamp(),
+      });
+
+      setExpenseTitle("");
+      setExpenseAmount("");
+      setExpenseCurrency("USD");
+      setExpensePaidBy("");
+      setExpenseCovered({});
+      setExpenseSplitMode("EVEN");
+      setExpenseItemizedAmounts({});
+      setExpensePaymentStatus("PAID");
+      setExpensePaymentApp("Venmo");
+      setExpensePaymentLink("");
+      setExpenseNotes("");
+
+      Alert.alert("Expense Added", `${paidByName} logged ${formatMoney(amount, expenseCurrency)}.`);
+    } catch (error) {
+      console.log("Add expense error:", error);
+      Alert.alert("Expense not saved", "Please try again.");
+    }
+  }
+
+  function confirmDeleteExpense(expense: any) {
+    const canDelete =
+      currentUser?.role === "OWNER" ||
+      expense.createdById === currentUser?.id ||
+      expense.paidById === currentUser?.id;
+
+    if (!canDelete) {
+      Alert.alert("Owner Only", "Only owners or the person who logged this expense can delete it.");
+      return;
+    }
+
+    Alert.alert(
+      "Delete expense?",
+      `Remove ${expense.title}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteDoc(doc(db, "tripmuse-expenses", expense.id));
+            } catch (error) {
+              console.log("Delete expense error:", error);
+              Alert.alert("Expense not deleted", "Please try again.");
+            }
+          },
+        },
+      ]
+    );
+  }
+
+  function calculateExpenseSummary() {
+    const balancesByCurrency: any = {
+      USD: {},
+      EUR: {},
+    };
+    const owedLines: any[] = [];
+
+    ["USD", "EUR"].forEach((currency) => {
+      tripMembers.forEach((person: any) => {
+        balancesByCurrency[currency][person.id] = {
+          id: person.id,
+          name: person.name,
+          currency,
+          net: 0,
+        };
+      });
+    });
+
+    expenses.forEach((expense: any) => {
+      const currency = expense.currency || "USD";
+      const paidById = expense.paidById;
+      const shares = getExpenseShares(expense);
+
+      if (!paidById || !balancesByCurrency[currency]) return;
+
+      Object.entries(shares).forEach(([coveredId, rawShare]: any) => {
+        const share = Number(rawShare || 0);
+        if (!share || coveredId === paidById) return;
+
+        if (!balancesByCurrency[currency][paidById]) {
+          balancesByCurrency[currency][paidById] = {
+            id: paidById,
+            name: getTravelerNameById(paidById),
+            currency,
+            net: 0,
+          };
+        }
+
+        if (!balancesByCurrency[currency][coveredId]) {
+          balancesByCurrency[currency][coveredId] = {
+            id: coveredId,
+            name: getTravelerNameById(coveredId),
+            currency,
+            net: 0,
+          };
+        }
+
+        balancesByCurrency[currency][paidById].net += share;
+        balancesByCurrency[currency][coveredId].net -= share;
+
+        owedLines.push({
+          fromId: coveredId,
+          fromName: getTravelerNameById(coveredId),
+          toId: paidById,
+          toName: getTravelerNameById(paidById),
+          amount: share,
+          currency,
+          title: expense.title,
+          paymentApp: expense.paymentApp,
+          paymentLink: expense.paymentLink,
+          paymentStatus: expense.paymentStatus,
+        });
+      });
+    });
+
+    return {
+      balancesByCurrency,
+      owedLines,
+      myPaidExpenses: expenses.filter((expense: any) => expense.paidById === currentUser?.id),
+      myOwedLines: owedLines.filter((line: any) => line.fromId === currentUser?.id),
+      myReceivableLines: owedLines.filter((line: any) => line.toId === currentUser?.id),
+    };
+  }
+
+  function openExpensePaymentLink(link: string) {
+    if (!link) {
+      Alert.alert("No payment link", "Ask the submitter to add a Venmo or Revolut request link.");
+      return;
+    }
+
+    Linking.openURL(link);
+  }
+
 
   function signIn() {
     if (!selectedMember) {
@@ -516,7 +852,146 @@ export default function Index() {
     }
   }
 
-  async function pickUploadImage(slotKey: string, label: string) {
+
+  function getUploadVisibilityForSlot(slotKey: string) {
+    return uploadVisibility?.[slotKey] || "TRIP";
+  }
+
+  function setUploadVisibilityForSlot(slotKey: string, visibility: string) {
+    setUploadVisibility((currentVisibility: any) => ({
+      ...currentVisibility,
+      [slotKey]: visibility,
+    }));
+  }
+
+  function getOutfitOwnerForSlot(slotKey: string) {
+    const owner = tripMembers.find((person: any) =>
+      slotKey.startsWith(`outfit-${person.id}-`)
+    );
+
+    return {
+      ownerId: owner?.id || currentUser?.id || "trip",
+      ownerName: owner?.name || currentUser?.name || "Trip",
+    };
+  }
+
+  function canCurrentUserSeeUpload(upload: any, canEdit = false) {
+    if (!upload) return false;
+
+    const slotKey = upload.slotKey || "";
+    const isOutfitUpload = slotKey.startsWith("outfit-");
+
+    if (!isOutfitUpload) return true;
+
+    const ownerIdFromSlot = slotKey.split("-")[1];
+    const ownerId = upload.ownerId || ownerIdFromSlot;
+
+    if (ownerId === currentUser?.id) return true;
+
+    return upload.visibility === "TRIP";
+  }
+
+
+  async function setExistingUploadVisibility(upload: any, visibility: string) {
+    if (!upload?.id) return;
+
+    try {
+      await setDoc(
+        doc(db, "tripmuse-uploads", upload.id),
+        {
+          visibility,
+          updatedBy: currentUser?.name || "",
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch (error) {
+      console.log("Visibility update error:", error);
+      Alert.alert("Visibility not updated", "Please try again.");
+    }
+  }
+
+
+  async function compressUploadImageToDataUri(asset: any) {
+    const rawUri = asset?.base64
+      ? `data:image/jpeg;base64,${asset.base64}`
+      : asset?.uri;
+
+    if (!rawUri) return "";
+
+    const canUseCanvas =
+      typeof document !== "undefined" &&
+      typeof (globalThis as any).Image !== "undefined";
+
+    if (!canUseCanvas) {
+      return rawUri;
+    }
+
+    return await new Promise((resolve) => {
+      const image = new (globalThis as any).Image();
+
+      image.onload = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          const context = canvas.getContext("2d");
+
+          if (!context) {
+            resolve(rawUri);
+            return;
+          }
+
+          const originalWidth = image.width || 900;
+          const originalHeight = image.height || 900;
+
+          const attempts = [
+            { maxSide: 900, quality: 0.55 },
+            { maxSide: 800, quality: 0.45 },
+            { maxSide: 700, quality: 0.38 },
+            { maxSide: 600, quality: 0.32 },
+            { maxSide: 500, quality: 0.26 },
+            { maxSide: 420, quality: 0.22 },
+          ];
+
+          let bestDataUri = rawUri;
+
+          for (const attempt of attempts) {
+            const scale = Math.min(
+              1,
+              attempt.maxSide / Math.max(originalWidth, originalHeight)
+            );
+
+            canvas.width = Math.max(1, Math.round(originalWidth * scale));
+            canvas.height = Math.max(1, Math.round(originalHeight * scale));
+
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+            const dataUri = canvas.toDataURL("image/jpeg", attempt.quality);
+            bestDataUri = dataUri;
+
+            if (dataUri.length < 650000) {
+              resolve(dataUri);
+              return;
+            }
+          }
+
+          resolve(bestDataUri);
+        } catch (error) {
+          console.log("Compression error:", error);
+          resolve(rawUri);
+        }
+      };
+
+      image.onerror = () => resolve(rawUri);
+      image.src = rawUri;
+    });
+  }
+
+  async function pickUploadImage(
+    slotKey: string,
+    label: string,
+    forcedVisibility?: string
+  ) {
     if (!currentUser || !currentUser.name) return;
 
     const permissionResult =
@@ -532,71 +1007,81 @@ export default function Index() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"] as any,
-      allowsEditing: true,
-      quality: 0.08,
+      allowsEditing: false,
+      quality: 0.04,
       base64: true,
     });
 
     if (result.canceled) return;
 
-    const asset = result.assets[0];
+    const asset = result.assets?.[0];
 
-    if (!asset.base64) {
-      Alert.alert("Image issue", "Please choose a smaller image.");
+    if (!asset) {
+      Alert.alert("Image issue", "Please choose a different image.");
       return;
     }
 
-    if (asset.base64.length > 700000) {
+    const imageUri = await compressUploadImageToDataUri(asset);
+
+    if (!imageUri) {
+      Alert.alert("Image issue", "Please choose a smaller image or screenshot.");
+      return;
+    }
+
+    if (String(imageUri).length > 850000) {
       Alert.alert(
-        "Image too large",
-        "Please choose a screenshot or smaller image so it can sync for everyone."
+        "Image still too large",
+        "Please choose a screenshot or crop the image smaller before uploading."
       );
       return;
     }
 
-    const imageUri = `data:image/jpeg;base64,${asset.base64}`;
+    const isOutfitUpload = slotKey.startsWith("outfit-");
+    const selectedVisibility = isOutfitUpload
+      ? forcedVisibility || getUploadVisibilityForSlot(slotKey)
+      : "TRIP";
+    const outfitOwner = isOutfitUpload
+      ? getOutfitOwnerForSlot(slotKey)
+      : { ownerId: "trip", ownerName: "Trip" };
 
     const savedUpload = {
       slotKey,
       label,
       uploadedBy: currentUser.name,
       uploadedByRole: currentUser.role,
+      ownerId: outfitOwner.ownerId,
+      ownerName: outfitOwner.ownerName,
+      visibility: selectedVisibility,
       status: "Uploaded",
       time: new Date().toLocaleString(),
       uri: imageUri,
-      fileName: asset.fileName || `${slotKey}.jpg`,
+      fileName: asset.fileName || `${slotKey}-${Date.now()}.jpg`,
       type: "image",
       createdAt: serverTimestamp(),
     };
 
-    setUploads((currentUploads: any) => ({
-      ...currentUploads,
-      [slotKey]: {
-        ...savedUpload,
-        createdAt: new Date().toISOString(),
-      },
-    }));
-
     try {
-      await setDoc(doc(db, "tripmuse-uploads", slotKey), savedUpload);
-      Alert.alert("Image Saved ✨", `${label} image is now shared.`);
+      await addDoc(collection(db, "tripmuse-uploads"), savedUpload);
+
+      Alert.alert(
+        "Image Saved",
+        isOutfitUpload
+          ? `${label} image saved. Visibility: ${selectedVisibility === "TRIP" ? "Visible to trip" : "Private to me"}.`
+          : `${label} image is now shared.`
+      );
     } catch (error) {
       console.log("Cloud save error:", error);
       Alert.alert(
         "Image not saved",
-        "Please choose a smaller image or screenshot."
+        "Please choose a smaller screenshot or image."
       );
     }
   }
 
-  async function deleteUpload(slotKey: string) {
-    const updatedUploads = { ...uploads };
-    delete updatedUploads[slotKey];
 
-    setUploads(updatedUploads);
-
+  async function deleteUpload(uploadDocId: string) {
     try {
-      await deleteDoc(doc(db, "tripmuse-uploads", slotKey));
+      await deleteDoc(doc(db, "tripmuse-uploads", uploadDocId));
       Alert.alert("Upload Removed", "The shared image was removed.");
     } catch (error) {
       console.log("Delete upload error:", error);
@@ -604,14 +1089,39 @@ export default function Index() {
     }
   }
 
+
   function renderUploadSlot(
     slotKey: string,
     label: string,
     icon: string,
     canEdit = true
   ) {
-    const upload = uploads[slotKey];
-    const displayLabel = uploadLabels[slotKey]?.label || upload?.label || label;
+    const rawUploads = uploads[slotKey];
+    const uploadsForSlot = Array.isArray(rawUploads)
+      ? rawUploads
+      : rawUploads
+      ? [rawUploads]
+      : [];
+
+    const visibleUploads = uploadsForSlot
+      .filter((upload: any) => canCurrentUserSeeUpload(upload, canEdit))
+      .filter((upload: any, index: number, allUploads: any[]) => {
+        const uniqueId = upload.id || upload.docId || upload.uri || `${slotKey}-${index}`;
+        return (
+          allUploads.findIndex((otherUpload: any) => {
+            const otherId =
+              otherUpload.id ||
+              otherUpload.docId ||
+              otherUpload.uri ||
+              `${slotKey}-${index}`;
+            return otherId === uniqueId;
+          }) === index
+        );
+      });
+
+    const displayLabel =
+      uploadLabels[slotKey]?.label || visibleUploads[0]?.label || label;
+    const isOutfitSlot = slotKey.startsWith("outfit-");
 
     return (
       <View style={styles.uploadSlotCard}>
@@ -632,50 +1142,118 @@ export default function Index() {
             )}
 
             <Text style={styles.uploadStatus}>
-              {upload
-                ? `Uploaded by ${upload.uploadedBy} · ${upload.time}`
+              {visibleUploads.length > 0
+                ? `${visibleUploads.length} visible image${visibleUploads.length === 1 ? "" : "s"}`
+                : isOutfitSlot && !canEdit
+                ? "No shared outfit images yet"
                 : "No image uploaded yet"}
             </Text>
           </View>
         </View>
 
-        {upload?.uri && (
-          <Image
-            source={{ uri: upload.uri }}
-            style={styles.uploadPreview}
-            resizeMode="contain"
-          />
+        {visibleUploads.length > 0 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {visibleUploads.map((upload: any, uploadIndex: number) => {
+              const uploadOwnerId =
+                upload.ownerId || upload.slotKey?.split("-")?.[1] || "";
+              const canManageThisImage = uploadOwnerId === currentUser?.id;
+
+              return (
+                <View
+                  key={`${upload.id || upload.docId || "upload"}-${uploadIndex}`}
+                  style={styles.multiImageWrap}
+                >
+                  <Image
+                    source={{ uri: upload.uri }}
+                    style={styles.multiUploadPreview}
+                    resizeMode="cover"
+                  />
+
+                  <View style={styles.imageMetaRow}>
+                    <Text style={styles.imageVisibilityText}>
+                      {upload.visibility === "TRIP" ? "Visible to trip" : "Private to owner"}
+                    </Text>
+                  </View>
+
+                  <Text style={styles.uploadStatus}>
+                    {upload.uploadedBy} · {upload.time}
+                  </Text>
+
+                  {canManageThisImage && isOutfitSlot && (
+                    <View style={styles.visibilityRow}>
+                      <Pressable
+                        onPress={() => setExistingUploadVisibility(upload, "PRIVATE")}
+                        style={[
+                          styles.visibilityPill,
+                          upload.visibility !== "TRIP" && styles.visibilityPillActive,
+                        ]}
+                      >
+                        <Text style={styles.visibilityText}>Private</Text>
+                      </Pressable>
+
+                      <Pressable
+                        onPress={() => setExistingUploadVisibility(upload, "TRIP")}
+                        style={[
+                          styles.visibilityPill,
+                          upload.visibility === "TRIP" && styles.visibilityPillActive,
+                        ]}
+                      >
+                        <Text style={styles.visibilityText}>Share</Text>
+                      </Pressable>
+                    </View>
+                  )}
+
+                  {canManageThisImage && (
+                    <Pressable
+                      onPress={() => deleteUpload(upload.id)}
+                      style={styles.deleteUploadButton}
+                    >
+                      <Text style={styles.deleteUploadText}>Delete</Text>
+                    </Pressable>
+                  )}
+                </View>
+              );
+            })}
+          </ScrollView>
         )}
 
         {canEdit ? (
-          <>
+          isOutfitSlot ? (
+            <View style={styles.outfitUploadButtonGrid}>
+              <Pressable
+                onPress={() => pickUploadImage(slotKey, displayLabel, "PRIVATE")}
+                style={styles.uploadActionButton}
+              >
+                <Text style={styles.uploadActionText}>Add Private Image</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => pickUploadImage(slotKey, displayLabel, "TRIP")}
+                style={[styles.uploadActionButton, styles.uploadActionButtonDone]}
+              >
+                <Text style={styles.uploadActionText}>Add Shared Image</Text>
+              </Pressable>
+            </View>
+          ) : (
             <Pressable
               onPress={() => pickUploadImage(slotKey, displayLabel)}
               style={[
                 styles.uploadActionButton,
-                upload && styles.uploadActionButtonDone,
+                visibleUploads.length > 0 && styles.uploadActionButtonDone,
               ]}
             >
               <Text style={styles.uploadActionText}>
-                {upload ? "Replace Saved Image" : "Choose Image"}
+                {visibleUploads.length > 0 ? "Replace Saved Image" : "Choose Image"}
               </Text>
             </Pressable>
-
-            {upload && (
-              <Pressable
-                onPress={() => deleteUpload(slotKey)}
-                style={styles.deleteUploadButton}
-              >
-                <Text style={styles.deleteUploadText}>Delete Upload</Text>
-              </Pressable>
-            )}
-          </>
+          )
         ) : (
-          <Text style={styles.readOnlyText}>Viewing only</Text>
+          <Text style={styles.readOnlyText}>Viewing shared images only</Text>
         )}
       </View>
     );
   }
+
 
   async function sendAnnouncement() {
     if (!currentUser || !currentUser.name) return;
@@ -782,6 +1360,9 @@ export default function Index() {
     canSeeEvent(event, currentUser)
   );
 
+  const expenseSummary = calculateExpenseSummary();
+  const selectedClosetDay = days[selectedClosetDayIndex] || selectedDay;
+
   const selectedClosetMember =
     tripMembers.find((person: any) => person.id === selectedClosetMemberId) ||
     tripMembers[0];
@@ -818,7 +1399,7 @@ export default function Index() {
           </Pressable>
 
           <View style={styles.tabs}>
-            {["Dashboard", "Itinerary", "Closets", "Chat", "Announcements", "Map"].map(
+            {["Dashboard", "Itinerary", "Closets", "Expenses", "Chat", "Announcements", "Map"].map(
               (item) => (
                 <Pressable
                   key={item}
@@ -954,8 +1535,8 @@ export default function Index() {
                 </Text>
 
                 {renderUploadSlot(
-                  `outfit-${selectedDay.id}`,
-                  "Outfit Inspiration",
+                  `outfit-${currentUser.id}-${selectedDay.id}`,
+                  "My Outfit Inspiration",
                   "👗"
                 )}
               </View>
@@ -1086,56 +1667,371 @@ export default function Index() {
           {tab === "Closets" && (
             <View>
               <View style={styles.card}>
-                <Text style={styles.cardLabel}>Shared Closets</Text>
-                <Text style={styles.cardTitle}>Traveler Outfit Boards 👗</Text>
+                <Text style={styles.cardLabel}>Closet</Text>
+                <Text style={styles.cardTitle}>Daily Outfit Boards 👗</Text>
                 <Text style={styles.muted}>
-                  Pick a traveler to view their closet. Everyone can view; owners can help manage.
+                  Choose a day to see every traveler on one page. Private images only show to the person who uploaded them. Shared images show to the trip.
                 </Text>
               </View>
 
+              <Text style={styles.formLabel}>Day</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {tripMembers.map((person: any) => (
+                {days.map((day: any, index: number) => (
                   <Pressable
-                    key={person.id}
-                    onPress={() => setSelectedClosetMemberId(person.id)}
+                    key={day.id}
+                    onPress={() => setSelectedClosetDayIndex(index)}
                     style={[
-                      styles.closetPill,
-                      selectedClosetMemberId === person.id && styles.activeClosetPill,
+                      styles.dayPill,
+                      selectedClosetDayIndex === index && styles.activeDayPill,
                     ]}
                   >
-                    <Text style={styles.closetPillText}>{person.name}</Text>
+                    <Text style={styles.dayPillText}>{day.date}</Text>
+                    <Text style={styles.dayPillSmall}>{day.day}</Text>
                   </Pressable>
                 ))}
               </ScrollView>
 
               <View style={styles.card}>
-                <Text style={styles.cardLabel}>
-                  {selectedClosetMember?.name || "Traveler"}'s Closet
-                </Text>
-                <Text style={styles.cardTitle}>Outfit Inspiration</Text>
+                <Text style={styles.cardLabel}>{selectedClosetDay.date}</Text>
+                <Text style={styles.cardTitle}>{selectedClosetDay.outfit.title}</Text>
                 <Text style={styles.muted}>
-                  {canEditSelectedCloset
-                    ? "Upload and manage looks for this closet."
-                    : "You are viewing this traveler's closet."}
+                  {selectedClosetDay.outfit.description}
                 </Text>
+              </View>
 
-                <View style={styles.uploadGrid}>
-                  {[
-                    "Travel Look",
-                    "Dinner Look",
-                    "Beach Club Look",
-                    "Night Out",
-                    "Festival Fit",
-                    "Extra Inspiration",
-                  ].map((label, index) =>
-                    renderUploadSlot(
-                      `closet-${selectedClosetMember?.id || "traveler"}-${index + 1}`,
-                      label,
+              {tripMembers.map((person: any) => {
+                const canEditTravelerOutfit = person.id === currentUser?.id;
+
+                return (
+                  <View key={`closet-day-${person.id}`} style={styles.card}>
+                    <Text style={styles.cardLabel}>{person.name}</Text>
+                    <Text style={styles.cardTitle}>
+                      {canEditTravelerOutfit ? "My Outfit Inspo" : `${person.name}'s Shared Inspo`}
+                    </Text>
+                    <Text style={styles.muted}>
+                      {canEditTravelerOutfit
+                        ? "Add private images for yourself or shared images for the trip."
+                        : "Only images this traveler marked shared will appear here."}
+                    </Text>
+
+                    {renderUploadSlot(
+                      `outfit-${person.id}-${selectedClosetDay.id}`,
+                      `${person.name} Outfit Inspiration`,
                       "👗",
-                      canEditSelectedCloset
-                    )
-                  )}
+                      canEditTravelerOutfit
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
+          {tab === "Expenses" && (
+            <View>
+              <View style={styles.card}>
+                <Text style={styles.cardLabel}>Expense Splitter</Text>
+                <Text style={styles.cardTitle}>Shared Trip Expenses</Text>
+                <Text style={styles.muted}>
+                  Add USD or EUR expenses, choose who was covered, split evenly or itemize by traveler, and track what you owe.
+                </Text>
+              </View>
+
+              <View style={styles.card}>
+                <Text style={styles.cardLabel}>My Summary</Text>
+                <Text style={styles.cardTitle}>What I owe / what I am owed</Text>
+
+                {expenseSummary.myOwedLines.length === 0 && expenseSummary.myReceivableLines.length === 0 ? (
+                  <Text style={styles.muted}>You are settled based on submitted expenses.</Text>
+                ) : (
+                  <>
+                    {expenseSummary.myOwedLines.map((line: any, index: number) => (
+                      <View key={`my-owe-${index}`} style={styles.balanceRow}>
+                        <Text style={styles.balanceName}>
+                          You owe {line.toName}
+                        </Text>
+                        <Text style={styles.balanceAmount}>
+                          {formatMoney(line.amount, line.currency)}
+                        </Text>
+                      </View>
+                    ))}
+
+                    {expenseSummary.myReceivableLines.map((line: any, index: number) => (
+                      <View key={`my-owed-${index}`} style={styles.balanceRow}>
+                        <Text style={styles.balanceName}>
+                          {line.fromName} owes you
+                        </Text>
+                        <Text style={styles.balanceAmount}>
+                          {formatMoney(line.amount, line.currency)}
+                        </Text>
+                      </View>
+                    ))}
+                  </>
+                )}
+              </View>
+
+              <View style={styles.card}>
+                <Text style={styles.cardLabel}>All Balances</Text>
+                <Text style={styles.cardTitle}>Group summary</Text>
+
+                {["USD", "EUR"].map((currency) => (
+                  <View key={currency} style={styles.currencySection}>
+                    <Text style={styles.formLabel}>{currency}</Text>
+                    {Object.values(expenseSummary.balancesByCurrency[currency] || {}).map(
+                      (balance: any) => (
+                        <View key={`${currency}-${balance.id}`} style={styles.balanceRow}>
+                          <Text style={styles.balanceName}>{balance.name}</Text>
+                          <Text
+                            style={[
+                              styles.balanceAmount,
+                              balance.net > 0
+                                ? styles.balancePositive
+                                : balance.net < 0
+                                ? styles.balanceNegative
+                                : styles.balanceEven,
+                            ]}
+                          >
+                            {balance.net > 0
+                              ? `Is owed ${formatMoney(balance.net, currency)}`
+                              : balance.net < 0
+                              ? `Owes ${formatMoney(Math.abs(balance.net), currency)}`
+                              : "Settled"}
+                          </Text>
+                        </View>
+                      )
+                    )}
+                  </View>
+                ))}
+              </View>
+
+              <View style={styles.card}>
+                <Text style={styles.cardLabel}>Add Expense</Text>
+                <Text style={styles.cardTitle}>Log what you paid or requested</Text>
+
+                <TextInput
+                  value={expenseTitle}
+                  onChangeText={setExpenseTitle}
+                  placeholder="What was it for? Example: Zuma dinner"
+                  style={styles.input}
+                />
+
+                <TextInput
+                  value={expenseAmount}
+                  onChangeText={setExpenseAmount}
+                  keyboardType="decimal-pad"
+                  placeholder="Total amount"
+                  style={styles.input}
+                />
+
+                <Text style={styles.formLabel}>Currency</Text>
+                <View style={styles.expenseTravelerGrid}>
+                  {["USD", "EUR"].map((currency) => (
+                    <Pressable
+                      key={currency}
+                      onPress={() => setExpenseCurrency(currency)}
+                      style={[
+                        styles.expenseTravelerPill,
+                        expenseCurrency === currency && styles.activeExpenseTravelerPill,
+                      ]}
+                    >
+                      <Text style={styles.expenseTravelerText}>
+                        {currency === "EUR" ? "€ EUR" : "$ USD"}
+                      </Text>
+                    </Pressable>
+                  ))}
                 </View>
+
+                <Text style={styles.formLabel}>Who paid / submitted?</Text>
+                <View style={styles.expenseTravelerGrid}>
+                  {tripMembers.map((person: any) => (
+                    <Pressable
+                      key={`payer-${person.id}`}
+                      onPress={() => setExpensePaidBy(person.id)}
+                      style={[
+                        styles.expenseTravelerPill,
+                        (expensePaidBy || currentUser.id) === person.id &&
+                          styles.activeExpenseTravelerPill,
+                      ]}
+                    >
+                      <Text style={styles.expenseTravelerText}>{person.name}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <Text style={styles.formLabel}>Paid yet?</Text>
+                <View style={styles.expenseTravelerGrid}>
+                  {[
+                    { id: "PAID", label: "Paid already" },
+                    { id: "REQUESTED", label: "Requested / not paid yet" },
+                  ].map((status: any) => (
+                    <Pressable
+                      key={status.id}
+                      onPress={() => setExpensePaymentStatus(status.id)}
+                      style={[
+                        styles.expenseTravelerPill,
+                        expensePaymentStatus === status.id &&
+                          styles.activeExpenseTravelerPill,
+                      ]}
+                    >
+                      <Text style={styles.expenseTravelerText}>{status.label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <Text style={styles.formLabel}>Who was covered?</Text>
+                <View style={styles.expenseTravelerGrid}>
+                  {tripMembers.map((person: any) => (
+                    <Pressable
+                      key={`covered-${person.id}`}
+                      onPress={() => toggleExpenseCovered(person.id)}
+                      style={[
+                        styles.expenseTravelerPill,
+                        expenseCovered?.[person.id] &&
+                          styles.activeExpenseTravelerPill,
+                      ]}
+                    >
+                      <Text style={styles.expenseTravelerText}>
+                        {expenseCovered?.[person.id] ? "✓ " : ""}
+                        {person.name}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <Text style={styles.formLabel}>Split method</Text>
+                <View style={styles.expenseTravelerGrid}>
+                  {[
+                    { id: "EVEN", label: "Split evenly" },
+                    { id: "ITEMIZED", label: "Itemized bills" },
+                  ].map((mode: any) => (
+                    <Pressable
+                      key={mode.id}
+                      onPress={() => setExpenseSplitMode(mode.id)}
+                      style={[
+                        styles.expenseTravelerPill,
+                        expenseSplitMode === mode.id &&
+                          styles.activeExpenseTravelerPill,
+                      ]}
+                    >
+                      <Text style={styles.expenseTravelerText}>{mode.label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                {expenseSplitMode === "ITEMIZED" && (
+                  <View style={styles.itemizedBox}>
+                    {selectedExpenseCoveredIds().map((travelerId: string) => (
+                      <View key={`itemized-${travelerId}`}>
+                        <Text style={styles.formLabel}>{getTravelerNameById(travelerId)}</Text>
+                        <TextInput
+                          value={expenseItemizedAmounts?.[travelerId] || ""}
+                          onChangeText={(value) => updateItemizedAmount(travelerId, value)}
+                          keyboardType="decimal-pad"
+                          placeholder={`Amount for ${getTravelerNameById(travelerId)}`}
+                          style={styles.input}
+                        />
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                <Text style={styles.formLabel}>Payment request app</Text>
+                <View style={styles.expenseTravelerGrid}>
+                  {["Venmo", "Revolut", "Other"].map((app) => (
+                    <Pressable
+                      key={app}
+                      onPress={() => setExpensePaymentApp(app)}
+                      style={[
+                        styles.expenseTravelerPill,
+                        expensePaymentApp === app && styles.activeExpenseTravelerPill,
+                      ]}
+                    >
+                      <Text style={styles.expenseTravelerText}>{app}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <TextInput
+                  value={expensePaymentLink}
+                  onChangeText={setExpensePaymentLink}
+                  placeholder="Optional Venmo/Revolut request link"
+                  style={styles.input}
+                />
+
+                <TextInput
+                  value={expenseNotes}
+                  onChangeText={setExpenseNotes}
+                  placeholder="Notes"
+                  multiline
+                  style={styles.announcementBox}
+                />
+
+                <Pressable onPress={addExpense} style={styles.primaryButton}>
+                  <Text style={styles.primaryText}>Add Expense</Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.card}>
+                <Text style={styles.cardLabel}>What I paid for</Text>
+                <Text style={styles.cardTitle}>My submitted expenses</Text>
+
+                {expenseSummary.myPaidExpenses.length === 0 ? (
+                  <Text style={styles.muted}>You have not submitted any expenses yet.</Text>
+                ) : (
+                  expenseSummary.myPaidExpenses.map((expense: any) => (
+                    <View key={`mine-${expense.id}`} style={styles.expenseLogCard}>
+                      <Text style={styles.cardTitle}>{expense.title}</Text>
+                      <Text style={styles.muted}>
+                        {formatMoney(expense.amount, expense.currency)} · {expense.paymentStatus === "PAID" ? "Paid" : "Requested / pending"}
+                      </Text>
+                      <Text style={styles.muted}>
+                        Covered: {expense.coveredNames?.join(", ") || "Not listed"}
+                      </Text>
+                    </View>
+                  ))
+                )}
+              </View>
+
+              <View style={styles.card}>
+                <Text style={styles.cardLabel}>Expense Log</Text>
+                <Text style={styles.cardTitle}>All submitted expenses</Text>
+
+                {expenses.length === 0 ? (
+                  <Text style={styles.muted}>No expenses yet.</Text>
+                ) : (
+                  expenses.map((expense: any) => (
+                    <View key={expense.id} style={styles.expenseLogCard}>
+                      <Text style={styles.date}>{expense.createdAtLabel}</Text>
+                      <Text style={styles.cardTitle}>{expense.title}</Text>
+                      <Text style={styles.muted}>
+                        {expense.paidByName} submitted {formatMoney(expense.amount, expense.currency)}
+                      </Text>
+                      <Text style={styles.muted}>
+                        Split: {expense.splitMode === "ITEMIZED" ? "Itemized" : "Even"} · Status: {expense.paymentStatus === "PAID" ? "Paid" : "Requested / pending"}
+                      </Text>
+                      <Text style={styles.muted}>
+                        Covered: {expense.coveredNames?.join(", ") || "Not listed"}
+                      </Text>
+
+                      {expense.paymentLink ? (
+                        <Pressable
+                          onPress={() => openExpensePaymentLink(expense.paymentLink)}
+                          style={styles.outlineButton}
+                        >
+                          <Text style={styles.outlineButtonText}>
+                            Open {expense.paymentApp || "Payment"} Request
+                          </Text>
+                        </Pressable>
+                      ) : null}
+
+                      <Pressable
+                        onPress={() => confirmDeleteExpense(expense)}
+                        style={styles.deleteUploadButton}
+                      >
+                        <Text style={styles.deleteUploadText}>Delete Expense</Text>
+                      </Pressable>
+                    </View>
+                  ))
+                )}
               </View>
             </View>
           )}
@@ -2002,4 +2898,145 @@ const styles = StyleSheet.create({
   borderLeftWidth: 5,
   borderLeftColor: colors.coral,
 },
+  balanceRow: {
+    backgroundColor: "#FFF8F2",
+    borderRadius: 18,
+    padding: 14,
+    marginTop: 10,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+
+  balanceName: {
+    color: colors.text,
+    fontWeight: "900",
+    flex: 1,
+  },
+
+  balanceAmount: {
+    fontWeight: "900",
+    textAlign: "right",
+    flex: 1,
+  },
+
+  balancePositive: {
+    color: colors.ocean,
+  },
+
+  balanceNegative: {
+    color: colors.terracotta,
+  },
+
+  balanceEven: {
+    color: colors.muted,
+  },
+
+  currencySection: {
+    marginTop: 12,
+  },
+
+  formLabel: {
+    color: colors.terracotta,
+    fontWeight: "900",
+    marginTop: 16,
+    marginBottom: 8,
+  },
+
+  expenseTravelerGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 8,
+  },
+
+  expenseTravelerPill: {
+    backgroundColor: "#FFF8F2",
+    borderRadius: 999,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+
+  activeExpenseTravelerPill: {
+    backgroundColor: colors.blush,
+  },
+
+  expenseTravelerText: {
+    color: colors.text,
+    fontWeight: "900",
+    fontSize: 12,
+  },
+
+  itemizedBox: {
+    backgroundColor: "#FFF8F2",
+    borderRadius: 18,
+    padding: 12,
+    marginTop: 10,
+  },
+
+  expenseLogCard: {
+    backgroundColor: "#FFF8F2",
+    borderRadius: 18,
+    padding: 14,
+    marginTop: 12,
+  },
+
+  multiImageWrap: {
+    width: 170,
+    marginRight: 12,
+    marginTop: 12,
+  },
+
+  multiUploadPreview: {
+    width: 170,
+    height: 210,
+    borderRadius: 18,
+    backgroundColor: "#FFF8F2",
+  },
+
+  visibilityBox: {
+    backgroundColor: "#FFF8F2",
+    borderRadius: 18,
+    padding: 12,
+    marginTop: 12,
+  },
+
+  visibilityRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 8,
+  },
+
+  visibilityPill: {
+    backgroundColor: colors.white,
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: colors.blush,
+  },
+
+  visibilityPillActive: {
+    backgroundColor: colors.blush,
+  },
+
+  visibilityText: {
+    color: colors.text,
+    fontWeight: "900",
+    fontSize: 12,
+  },
+
+  imageVisibilityText: {
+    color: colors.terracotta,
+    fontWeight: "900",
+    fontSize: 12,
+    marginTop: 8,
+  },
+
+  outfitUploadButtonGrid: {
+    gap: 10,
+    marginTop: 12,
+  },
+
 });
