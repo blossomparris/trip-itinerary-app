@@ -323,7 +323,7 @@ async function sendAnnouncement() {
           <Text style={styles.logo}>🍋 TripMuse</Text>
           <Text style={styles.title}>Euro Summer 2026</Text>
           <Text style={styles.subtitle}>
-            Signed in as {currentUser.name} · {currentUser.role}
+            Signed in as {currentUser?.name || "Guest"} · {currentUser?.role || "VIEWER"}
           </Text>
 
           <View style={styles.tabs}>
@@ -457,7 +457,7 @@ async function sendAnnouncement() {
                   key={message.id}
                   style={[
                     styles.chatBubble,
-                    message.sender === currentUser.name && styles.myChatBubble,
+                    message.sender === currentUser?.name && styles.myChatBubble,
                   ]}
                 >
                   <Text style={styles.chatSender}>{message.sender}</Text>
@@ -487,7 +487,7 @@ async function sendAnnouncement() {
                 <Text style={styles.cardLabel}>Announcements</Text>
                 <Text style={styles.cardTitle}>Text Blasts 📣</Text>
 
-                {currentUser.role !== "OWNER" ? (
+                {currentUser?.role !== "OWNER" ? (
                   <Text style={styles.muted}>
                     Only Blossom, Simone, and Kacper can send announcements.
                   </Text>
