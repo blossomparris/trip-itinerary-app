@@ -475,7 +475,7 @@ export default function Index() {
       <ImageBackground source={citrusPattern} style={styles.bg}>
         <LinearGradient colors={["#FFF8F2EE", "#FFF8F2DD"]} style={styles.wrap}>
           <ScrollView contentContainerStyle={styles.container}>
-            <Text style={styles.logo}>🍋 TripMuse</Text>
+            <Text style={styles.logo}>🍋 EuroSummer2026</Text>
             <Text style={styles.title}>Euro Summer 2026</Text>
             <Text style={styles.subtitle}>
               Select your name and enter your phone number to verify your trip
@@ -520,8 +520,7 @@ export default function Index() {
             </Pressable>
 
             <Text style={styles.loginNote}>
-              This is a free app-side verification check. Real SMS codes can be
-              added later with Firebase Phone Auth.
+              Your phone number is used to confirm your traveler access.
             </Text>
           </ScrollView>
         </LinearGradient>
@@ -540,7 +539,7 @@ export default function Index() {
         <ScrollView contentContainerStyle={styles.app}>
           <Image source={santoriniMoodboard} style={styles.heroImage} />
 
-          <Text style={styles.logo}>🍋 TripMuse</Text>
+          <Text style={styles.logo}>🍋 EuroSummer2026</Text>
           <Text style={styles.title}>Euro Summer 2026</Text>
           <Text style={styles.subtitle}>
             Signed in as {currentUser.name} · {currentUser.role}
@@ -576,8 +575,7 @@ export default function Index() {
                 <Text style={styles.cardLabel}>Trip Ready</Text>
                 <Text style={styles.cardTitle}>Welcome, {currentUser.name} 🍋</Text>
                 <Text style={styles.muted}>
-                  Your traveler access is verified. Use the quick actions below
-                  to jump into the trip.
+                  Your access is verified. Everything you need for London and Mykonos is one tap away.
                 </Text>
 
                 <View style={styles.quickActions}>
@@ -604,6 +602,14 @@ export default function Index() {
                   London · Mykonos · Jul 24 - Aug 9
                 </Text>
               </View>
+
+<View style={styles.statusCard}>
+  <Text style={styles.cardLabel}>Trip Status</Text>
+  <Text style={styles.cardTitle}>Planning Mode: Active ✨</Text>
+  <Text style={styles.muted}>
+    Itinerary, group chat, announcements, maps, outfits, and travel uploads are ready.
+  </Text>
+</View>
 
               <View style={styles.grid}>
                 <MiniCard title="Travelers" value="6" icon="👯‍♀️" />
@@ -1492,4 +1498,13 @@ const styles = StyleSheet.create({
     marginTop: 12,
     backgroundColor: "#FFF8F2",
   },
+
+  statusCard: {
+  backgroundColor: "#FFF6EF",
+  borderRadius: 28,
+  padding: 20,
+  marginBottom: 16,
+  borderLeftWidth: 5,
+  borderLeftColor: colors.coral,
+},
 });
