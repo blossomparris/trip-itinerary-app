@@ -11,96 +11,11 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { colors } from "../constants/theme";
+import { days, members } from "../data/tripData";
 
 const citrusPattern = require("../../assets/images/citrus-pattern.png");
 const santoriniMoodboard = require("../../assets/images/santorini-moodboard.png");
-
-const members = [
-  { id: "blossom", name: "Blossom", role: "OWNER" },
-  { id: "simone", name: "Simone", role: "OWNER" },
-  { id: "kacper", name: "Kacper", role: "OWNER" },
-  { id: "sam", name: "Sam", role: "VIEWER" },
-  { id: "liz", name: "Elizabeth/Liz", role: "VIEWER" },
-  { id: "devvora", name: "Devvora", role: "VIEWER" },
-];
-
-const days = [
-  {
-    day: "Travel Day",
-    date: "Jul 24",
-    outfit: "Airport chic: linen set, gold hoops, sandals",
-    events: [
-      {
-        title: "NYC Departure",
-        time: "6:20 PM",
-        location: "JFK Airport",
-        confirmation: "Norse C8SR3A",
-        group: "EVERYONE",
-        type: "flight",
-      },
-    ],
-  },
-  {
-    day: "London Day",
-    date: "Jul 25",
-    outfit: "Cute walking dress + sneakers",
-    events: [
-      {
-        title: "Greenwich Observatory",
-        time: "3:30 PM",
-        location: "Blackheath Ave, London",
-        confirmation: "",
-        group: "BLOSSOM_KACPER",
-        type: "activity",
-      },
-    ],
-  },
-  {
-    day: "Mykonos Day 1",
-    date: "Jul 31",
-    outfit: "Beach club glam: white set + statement sunglasses",
-    events: [
-      {
-        title: "Scorpios",
-        time: "10:30 PM",
-        location: "Paraga, Mykonos",
-        confirmation: "",
-        group: "EVERYONE",
-        type: "reservation",
-      },
-    ],
-  },
-  {
-    day: "Mykonos Day 2",
-    date: "Aug 1",
-    outfit: "Dinner look: blue dress + gold accessories",
-    events: [
-      {
-        title: "Zuma Mykonos",
-        time: "8:00 PM",
-        location: "Mykonos, Greece",
-        confirmation: "",
-        group: "EVERYONE",
-        type: "dinner",
-      },
-    ],
-  },
-  {
-    day: "London 2nd Leg",
-    date: "Aug 7",
-    outfit: "Concert night: sparkly top + comfy shoes",
-    events: [
-      {
-        title: "ABBA Voyage",
-        time: "7:45 PM",
-        location: "Pudding Mill Lane, London",
-        confirmation: "",
-        group: "EVERYONE",
-        type: "show",
-      },
-    ],
-  },
-];
 
 export default function Index() {
   const [selectedMember, setSelectedMember] = useState<any>(null);
@@ -118,10 +33,7 @@ export default function Index() {
   function canSeeEvent(event: any) {
     if (currentUser.role === "OWNER") return true;
     if (event.group === "EVERYONE") return true;
-    if (event.group === "BLOSSOM_KACPER") {
-      return ["Blossom", "Kacper"].includes(currentUser.name);
-    }
-    return false;
+    return event.attendees?.includes(currentUser.name);
   }
 
   if (!currentUser) {
@@ -135,7 +47,7 @@ export default function Index() {
               Select your name and enter your phone number.
             </Text>
 
-            {members.map((person) => (
+            {members.map((person: any) => (
               <Pressable
                 key={person.id}
                 onPress={() => setSelectedMember(person)}
@@ -184,38 +96,42 @@ export default function Index() {
           </Text>
 
           <View style={styles.tabs}>
-            {["Dashboard", "Itinerary", "Chat", "Announcements"].map((item) => (
-              <Pressable
-                key={item}
-                onPress={() => setTab(item)}
-                style={[styles.tab, tab === item && styles.activeTab]}
-              >
-                <Text style={styles.tabText}>{item}</Text>
-              </Pressable>
-            ))}
+            {["Dashboard", "Itinerary", "Chat", "Announcements", "Map"].map(
+              (item) => (
+                <Pressable
+                  key={item}
+                  onPress={() => setTab(item)}
+                  style={[styles.tab, tab === item && styles.activeTab]}
+                >
+                  <Text style={styles.tabText}>{item}</Text>
+                </Pressable>
+              )
+            )}
           </View>
 
           {tab === "Dashboard" && (
             <>
               <View style={styles.card}>
-                <Text style={styles.cardLabel}>Countdown</Text>
-                <Text style={styles.cardTitle}>Euro Summer is loading ✈️</Text>
+                <Text style={styles.cardLabel}>Trip Overview</Text>
+                <Text style={styles.cardTitle}>Euro Summer 2026 ✈️</Text>
                 <Text style={styles.muted}>
-                  London · Mykonos · Santorini-inspired planning
+                  London · Mykonos · Jul 24 - Aug 9
                 </Text>
               </View>
 
               <View style={styles.grid}>
                 <MiniCard title="Travelers" value="6" icon="👯‍♀️" />
                 <MiniCard title="Owners" value="3" icon="👑" />
+                <MiniCard title="Days" value={String(days.length)} icon="📅" />
                 <MiniCard title="QR Slots" value="Ready" icon="🎟️" />
-                <MiniCard title="Outfits" value="Daily" icon="👗" />
               </View>
 
               <View style={styles.card}>
-                <Text style={styles.cardLabel}>Today’s Highlight</Text>
-                <Text style={styles.cardTitle}>{selectedDay.day}</Text>
-                <Text style={styles.muted}>{selectedDay.outfit}</Text>
+                <Text style={styles.cardLabel}>Today’s Look</Text>
+                <Text style={styles.cardTitle}>{selectedDay.outfit.title}</Text>
+                <Text style={styles.muted}>
+                  {selectedDay.outfit.description}
+                </Text>
               </View>
             </>
           )}
@@ -223,9 +139,9 @@ export default function Index() {
           {tab === "Itinerary" && (
             <>
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {days.map((day, index) => (
+                {days.map((day: any, index: number) => (
                   <Pressable
-                    key={day.date}
+                    key={day.id}
                     onPress={() => setSelectedDayIndex(index)}
                     style={[
                       styles.dayPill,
@@ -238,69 +154,50 @@ export default function Index() {
                 ))}
               </ScrollView>
 
-              <View style={styles.outfitCard}>
+              <View style={styles.card}>
                 <Text style={styles.cardLabel}>Outfit Planner 👗</Text>
-                <Text style={styles.cardTitle}>{selectedDay.outfit}</Text>
+                <Text style={styles.cardTitle}>{selectedDay.outfit.title}</Text>
+                <Text style={styles.muted}>
+                  {selectedDay.outfit.description}
+                </Text>
                 <View style={styles.uploadSlot}>
                   <Text style={styles.qrText}>Upload outfit inspiration</Text>
                 </View>
               </View>
 
-              {visibleEvents.length === 0 ? (
-                <View style={styles.card}>
-                  <Text style={styles.cardTitle}>No visible events</Text>
-                  <Text style={styles.muted}>
-                    This day has private events you do not have access to.
+              {visibleEvents.map((event: any) => (
+                <View key={event.id} style={styles.card}>
+                  <Text style={styles.date}>
+                    {selectedDay.date} {event.time ? `· ${event.time}` : ""}
+                  </Text>
+                  <Text style={styles.cardTitle}>{event.title}</Text>
+                  <Text style={styles.muted}>📍 {event.location}</Text>
+
+                  <View style={styles.infoBox}>
+                    <Text style={styles.cardLabel}>Confirmation</Text>
+                    <Text style={styles.infoText}>
+                      {event.confirmation || "Not added yet"}
+                    </Text>
+                  </View>
+
+                  <View style={styles.qrSlot}>
+                    <Text style={styles.qrText}>QR / Ticket Upload Slot 🎟️</Text>
+                  </View>
+
+                  <Text style={styles.badge}>
+                    {event.group === "EVERYONE"
+                      ? "Visible to everyone 🌍"
+                      : "Private event 💌"}
                   </Text>
                 </View>
-              ) : (
-                visibleEvents.map((event, index) => (
-                  <View key={index} style={styles.timelineRow}>
-                    <View style={styles.timelineDot} />
-                    <View style={styles.card}>
-                      <Text style={styles.date}>
-                        {selectedDay.date} · {event.time}
-                      </Text>
-                      <Text style={styles.cardTitle}>{event.title}</Text>
-                      <Text style={styles.muted}>📍 {event.location}</Text>
-
-                      <View style={styles.infoBox}>
-                        <Text style={styles.cardLabel}>Confirmation</Text>
-                        <Text style={styles.infoText}>
-                          {event.confirmation || "Not added yet"}
-                        </Text>
-                      </View>
-
-                      <View style={styles.qrSlot}>
-                        <Text style={styles.qrText}>QR / Ticket Upload Slot 🎟️</Text>
-                      </View>
-
-                      <Text style={styles.badge}>
-                        {event.group === "EVERYONE"
-                          ? "Visible to everyone 🌍"
-                          : "Blossom + Kacper + Owners 💌"}
-                      </Text>
-                    </View>
-                  </View>
-                ))
-              )}
-
-              <View style={styles.mapCard}>
-                <Text style={styles.cardLabel}>Daily Route 🗺️</Text>
-                <Text style={styles.cardTitle}>Map Preview</Text>
-                <Text style={styles.muted}>
-                  Google Maps will connect here in Phase 4.
-                </Text>
-              </View>
+              ))}
             </>
           )}
 
           {tab === "Chat" && (
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Group Chat 💬</Text>
-              <Text style={styles.muted}>
-                Real-time chat will connect in Phase 3.
-              </Text>
+              <Text style={styles.muted}>Coming in the next milestone.</Text>
             </View>
           )}
 
@@ -308,8 +205,15 @@ export default function Index() {
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Announcements 📣</Text>
               <Text style={styles.muted}>
-                Owner-only blasts will connect in Phase 3.
+                Owner-only announcements and text blasts coming next.
               </Text>
+            </View>
+          )}
+
+          {tab === "Map" && (
+            <View style={styles.mapCard}>
+              <Text style={styles.cardTitle}>Daily Route 🗺️</Text>
+              <Text style={styles.muted}>Google Maps connects here soon.</Text>
             </View>
           )}
         </ScrollView>
@@ -342,34 +246,34 @@ const styles = StyleSheet.create({
   logo: {
     fontSize: 20,
     fontWeight: "900",
-    color: "#C98763",
+    color: colors.terracotta,
     marginBottom: 8,
   },
   title: {
     fontSize: 36,
     fontWeight: "900",
-    color: "#3F3A3A",
+    color: colors.text,
   },
   subtitle: {
-    color: "#8E7D75",
+    color: colors.muted,
     marginTop: 8,
     marginBottom: 22,
     fontSize: 16,
   },
   memberButton: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.white,
     borderRadius: 24,
     padding: 18,
     marginBottom: 12,
   },
-  selected: { backgroundColor: "#F8D7C4" },
+  selected: { backgroundColor: colors.blush },
   memberText: {
     fontSize: 18,
     fontWeight: "800",
-    color: "#3F3A3A",
+    color: colors.text,
   },
   input: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.white,
     borderRadius: 999,
     paddingHorizontal: 18,
     paddingVertical: 14,
@@ -377,43 +281,44 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   primaryButton: {
-    backgroundColor: "#6EC7DD",
+    backgroundColor: colors.ocean,
     borderRadius: 999,
     padding: 16,
     alignItems: "center",
     marginTop: 16,
   },
   primaryText: {
-    color: "#FFFFFF",
+    color: colors.white,
     fontWeight: "900",
     fontSize: 16,
   },
   tabs: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
     marginBottom: 18,
   },
   tab: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.white,
     borderRadius: 999,
     paddingVertical: 10,
+    paddingHorizontal: 14,
     alignItems: "center",
   },
-  activeTab: { backgroundColor: "#F8D7C4" },
+  activeTab: { backgroundColor: colors.blush },
   tabText: {
     fontWeight: "800",
-    color: "#3F3A3A",
+    color: colors.text,
     fontSize: 12,
   },
   card: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.white,
     borderRadius: 28,
     padding: 20,
     marginBottom: 16,
   },
   cardLabel: {
-    color: "#C98763",
+    color: colors.terracotta,
     fontWeight: "900",
     textTransform: "uppercase",
     fontSize: 12,
@@ -422,10 +327,10 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 23,
     fontWeight: "900",
-    color: "#3F3A3A",
+    color: colors.text,
   },
   muted: {
-    color: "#8E7D75",
+    color: colors.muted,
     marginTop: 8,
   },
   grid: {
@@ -436,7 +341,7 @@ const styles = StyleSheet.create({
   },
   miniCard: {
     width: "47%",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.white,
     borderRadius: 24,
     padding: 16,
   },
@@ -444,11 +349,11 @@ const styles = StyleSheet.create({
   miniValue: {
     fontSize: 22,
     fontWeight: "900",
-    color: "#3F3A3A",
+    color: colors.text,
     marginTop: 6,
   },
   dayPill: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.white,
     borderRadius: 24,
     padding: 14,
     marginRight: 10,
@@ -456,50 +361,30 @@ const styles = StyleSheet.create({
     minWidth: 130,
   },
   activeDayPill: {
-    backgroundColor: "#F8D7C4",
+    backgroundColor: colors.blush,
   },
   dayPillText: {
     fontWeight: "900",
-    color: "#3F3A3A",
+    color: colors.text,
   },
   dayPillSmall: {
-    color: "#8E7D75",
+    color: colors.muted,
     marginTop: 4,
     fontSize: 12,
-  },
-  outfitCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 28,
-    padding: 20,
-    marginBottom: 16,
   },
   uploadSlot: {
     height: 120,
     borderRadius: 22,
     borderStyle: "dashed",
     borderWidth: 1,
-    borderColor: "#E9A7A4",
+    borderColor: colors.coral,
     backgroundColor: "#FFF6EF",
     justifyContent: "center",
     alignItems: "center",
     marginTop: 16,
   },
-  timelineRow: {
-    borderLeftWidth: 3,
-    borderLeftColor: "#F8D7C4",
-    paddingLeft: 16,
-    marginLeft: 8,
-  },
-  timelineDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 999,
-    backgroundColor: "#6EC7DD",
-    marginLeft: -25,
-    marginBottom: -8,
-  },
   date: {
-    color: "#C98763",
+    color: colors.terracotta,
     fontWeight: "900",
   },
   infoBox: {
@@ -510,35 +395,35 @@ const styles = StyleSheet.create({
   },
   infoText: {
     fontWeight: "800",
-    color: "#3F3A3A",
+    color: colors.text,
   },
   qrSlot: {
     height: 90,
     borderRadius: 22,
     borderStyle: "dashed",
     borderWidth: 1,
-    borderColor: "#E9A7A4",
+    borderColor: colors.coral,
     backgroundColor: "#FFF6EF",
     justifyContent: "center",
     alignItems: "center",
     marginTop: 16,
   },
   qrText: {
-    color: "#C98763",
+    color: colors.terracotta,
     fontWeight: "800",
   },
   badge: {
     marginTop: 14,
-    backgroundColor: "#F8D7C4",
+    backgroundColor: colors.blush,
     alignSelf: "flex-start",
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 999,
     fontWeight: "800",
-    color: "#3F3A3A",
+    color: colors.text,
   },
   mapCard: {
-    backgroundColor: "#D9F4FA",
+    backgroundColor: colors.sky,
     borderRadius: 28,
     padding: 20,
     marginBottom: 16,
