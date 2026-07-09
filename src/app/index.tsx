@@ -54,6 +54,8 @@ export default function Index() {
     },
   ]);
 
+const [uploads, setUploads] = useState<any>({});
+
   function signIn() {
     if (!selectedMember) {
       Alert.alert("Choose your name");
@@ -124,6 +126,55 @@ function openDailyRouteInMaps() {
   const url = `https://www.google.com/maps/dir/${routePath}`;
 
   Linking.openURL(url);
+}
+
+function markUploadSlot(slotKey: string, label: string) {
+  if (!currentUser) return;
+
+  setUploads({
+    ...uploads,
+    [slotKey]: {
+      label,
+      uploadedBy: currentUser.name,
+      status: "Uploaded",
+      time: "Now",
+    },
+  });
+
+  Alert.alert("Upload Saved ✨", `${label} slot marked as uploaded.`);
+}
+
+function renderUploadSlot(slotKey: string, label: string, icon: string) {
+  const upload = uploads[slotKey];
+
+  return (
+    <View style={styles.uploadSlotCard}>
+      <View style={styles.uploadSlotTopRow}>
+        <Text style={styles.uploadIcon}>{icon}</Text>
+
+        <View style={{ flex: 1 }}>
+          <Text style={styles.uploadTitle}>{label}</Text>
+          <Text style={styles.uploadStatus}>
+            {upload
+              ? `Uploaded by ${upload.uploadedBy} · ${upload.time}`
+              : "No file uploaded yet"}
+          </Text>
+        </View>
+      </View>
+
+      <Pressable
+        onPress={() => markUploadSlot(slotKey, label)}
+        style={[
+          styles.uploadActionButton,
+          upload && styles.uploadActionButtonDone,
+        ]}
+      >
+        <Text style={styles.uploadActionText}>
+          {upload ? "Replace Upload" : "Add Upload"}
+        </Text>
+      </Pressable>
+    </View>
+  );
 }
 
   function sendAnnouncement() {
@@ -280,9 +331,11 @@ function openDailyRouteInMaps() {
                 <Text style={styles.muted}>
                   {selectedDay.outfit.description}
                 </Text>
-                <View style={styles.uploadSlot}>
-                  <Text style={styles.qrText}>Upload outfit inspiration</Text>
-                </View>
+                {renderUploadSlot(
+  `outfit-${selectedDay.id}`,
+  "Outfit Inspiration",
+  "👗"
+)}
               </View>
 
               {visibleEvents.length === 0 ? (
@@ -308,11 +361,15 @@ function openDailyRouteInMaps() {
                       </Text>
                     </View>
 
-                    <View style={styles.qrSlot}>
-                      <Text style={styles.qrText}>
-                        QR / Ticket Upload Slot 🎟️
-                      </Text>
-                    </View>
+                    <View style={styles.uploadGrid}>
+  {renderUploadSlot(`qr-${event.id}`, "QR / Ticket", "🎟️")}
+  {renderUploadSlot(
+    `confirmation-${event.id}`,
+    "Confirmation Screenshot",
+    "🧾"
+  )}
+  {renderUploadSlot(`photos-${event.id}`, "Event Photos", "📸")}
+</View>
 
                     <Text style={styles.badge}>
                       {event.group === "EVERYONE"
@@ -903,6 +960,59 @@ const styles = StyleSheet.create({
 
   outlineButtonText: {
     color: colors.ocean,
+    fontWeight: "900",
+  },
+  uploadGrid: {
+    gap: 12,
+    marginTop: 16,
+  },
+
+  uploadSlotCard: {
+    backgroundColor: "#FFF6EF",
+    borderRadius: 22,
+    borderStyle: "dashed",
+    borderWidth: 1,
+    borderColor: colors.coral,
+    padding: 14,
+    marginTop: 12,
+  },
+
+  uploadSlotTopRow: {
+    flexDirection: "row",
+    gap: 12,
+    alignItems: "center",
+  },
+
+  uploadIcon: {
+    fontSize: 28,
+  },
+
+  uploadTitle: {
+    color: colors.text,
+    fontWeight: "900",
+    fontSize: 15,
+  },
+
+  uploadStatus: {
+    color: colors.muted,
+    fontSize: 12,
+    marginTop: 4,
+  },
+
+  uploadActionButton: {
+    backgroundColor: colors.coral,
+    borderRadius: 999,
+    paddingVertical: 10,
+    alignItems: "center",
+    marginTop: 12,
+  },
+
+  uploadActionButtonDone: {
+    backgroundColor: colors.ocean,
+  },
+
+  uploadActionText: {
+    color: colors.white,
     fontWeight: "900",
   },
 });
