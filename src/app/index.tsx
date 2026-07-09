@@ -1,4 +1,5 @@
 import * as ImagePicker from "expo-image-picker";
+import { LinearGradient } from "expo-linear-gradient";
 import {
   addDoc,
   collection,
@@ -7,9 +8,6 @@ import {
   query,
   serverTimestamp,
 } from "firebase/firestore";
-import { db } from "../services/firebase";
-
-import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useState } from "react";
 import {
   Alert,
@@ -23,8 +21,10 @@ import {
   TextInput,
   View,
 } from "react-native";
+
 import { colors } from "../constants/theme";
-import { days } from "../data/tripData";
+import { days, members } from "../data/tripData";
+import { db } from "../services/firebase";
 
 const citrusPattern = require("../../assets/images/citrus-pattern.png");
 const santoriniMoodboard = require("../../assets/images/santorini-moodboard.png");
@@ -35,6 +35,18 @@ export default function Index() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [tab, setTab] = useState("Dashboard");
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
+
+  const tripMembers =
+    Array.isArray(members) && members.length > 0
+      ? members
+      : [
+          { id: "blossom", name: "Blossom", role: "OWNER" },
+          { id: "simone", name: "Simone", role: "OWNER" },
+          { id: "kacper", name: "Kacper", role: "OWNER" },
+          { id: "sam", name: "Sam", role: "VIEWER" },
+          { id: "liz", name: "Elizabeth/Liz", role: "VIEWER" },
+          { id: "devvora", name: "Devvora", role: "VIEWER" },
+        ];
 
   const [chatMessages, setChatMessages] = useState([
     {
@@ -65,63 +77,72 @@ export default function Index() {
     },
   ]);
 
-const [uploads, setUploads] = useState<any>({});
+  const [uploads, setUploads] = useState<any>({});
 
-useEffect(() => {
-  const chatQuery = query(
-    collection(db, "tripmuse-chat"),
-    orderBy("createdAt", "asc")
-  );
+  useEffect(() => {
+    const chatQuery = query(
+      collection(db, "tripmuse-chat"),
+      orderBy("createdAt", "asc")
+    );
 
-  const unsubscribeChat = onSnapshot(chatQuery, (snapshot) => {
-    const firebaseMessages = snapshot.docs.map((docSnapshot: any) => {
-      const data = docSnapshot.data();
+    const unsubscribeChat = onSnapshot(
+      chatQuery,
+      (snapshot) => {
+        const firebaseMessages = snapshot.docs.map((docSnapshot: any) => {
+          const data = docSnapshot.data();
 
-      return {
-        id: docSnapshot.id,
-        sender: data.sender,
-        text: data.text,
-        time: data.createdAt?.toDate
-          ? data.createdAt.toDate().toLocaleTimeString([], {
-              hour: "numeric",
-              minute: "2-digit",
-            })
-          : "Now",
-      };
-    });
+          return {
+            id: docSnapshot.id,
+            sender: data.sender,
+            text: data.text,
+            time: data.createdAt?.toDate
+              ? data.createdAt.toDate().toLocaleTimeString([], {
+                  hour: "numeric",
+                  minute: "2-digit",
+                })
+              : "Now",
+          };
+        });
 
-    setChatMessages(firebaseMessages);
-  });
+        setChatMessages(firebaseMessages);
+      },
+      (error) => {
+        console.log("Chat listener error:", error);
+      }
+    );
 
-  const announcementQuery = query(
-    collection(db, "tripmuse-announcements"),
-    orderBy("createdAt", "desc")
-  );
+    const announcementQuery = query(
+      collection(db, "tripmuse-announcements"),
+      orderBy("createdAt", "desc")
+    );
 
-  const unsubscribeAnnouncements = onSnapshot(
-    announcementQuery,
-    (snapshot) => {
-      const firebaseAnnouncements = snapshot.docs.map((docSnapshot: any) => {
-        const data = docSnapshot.data();
+    const unsubscribeAnnouncements = onSnapshot(
+      announcementQuery,
+      (snapshot) => {
+        const firebaseAnnouncements = snapshot.docs.map((docSnapshot: any) => {
+          const data = docSnapshot.data();
 
-        return {
-          id: docSnapshot.id,
-          sender: data.sender,
-          title: data.title,
-          body: data.body,
-          audience: data.audience,
-        };
-      });
+          return {
+            id: docSnapshot.id,
+            sender: data.sender,
+            title: data.title,
+            body: data.body,
+            audience: data.audience,
+          };
+        });
 
-      setAnnouncements(firebaseAnnouncements);
-    }
-  );
+        setAnnouncements(firebaseAnnouncements);
+      },
+      (error) => {
+        console.log("Announcement listener error:", error);
+      }
+    );
 
-  return () => {
-    unsubscribeChat();
-    unsubscribeAnnouncements();
-  };
-}, []);
+    return () => {
+      unsubscribeChat();
+      unsubscribeAnnouncements();
+    };
+  }, []);
 
   function signIn() {
     if (!selectedMember) {
@@ -148,166 +169,217 @@ useEffect(() => {
   }
 
   async function sendChatMessage() {
-  if (!currentUser) return;
-  if (!chatInput.trim()) return;
+    if (!currentUser || !currentUser.name) return;
+    if (!chatInput.trim()) return;
 
-  const messageText = chatInput;
-  setChatInput("");
+    const messageText = chatInput;
+    setChatInput("");
 
-  try {
-    await addDoc(collection(db, "tripmuse-chat"), {
-      sender: currentUser.name,
-      senderRole: currentUser.role,
-      text: messageText,
-      createdAt: serverTimestamp(),
-    });
-  } catch (error) {
-    Alert.alert("Message not sent", "Please try again.");
-    console.log(error);
-  }
-}
-
-function openLocationInMaps(location: string) {
-  if (!location) {
-    Alert.alert("No location", "This event does not have a location yet.");
-    return;
+    try {
+      await addDoc(collection(db, "tripmuse-chat"), {
+        sender: currentUser.name,
+        senderRole: currentUser.role,
+        text: messageText,
+        createdAt: serverTimestamp(),
+      });
+    } catch (error) {
+      Alert.alert("Message not sent", "Please try again.");
+      console.log(error);
+    }
   }
 
-  const encodedLocation = encodeURIComponent(location);
-  const url = `https://www.google.com/maps/search/?api=1&query=${encodedLocation}`;
+  function openLocationInMaps(location: string) {
+    if (!location) {
+      Alert.alert("No location", "This event does not have a location yet.");
+      return;
+    }
 
-  Linking.openURL(url);
-}
+    const encodedLocation = encodeURIComponent(location);
+    const url = `https://www.google.com/maps/search/?api=1&query=${encodedLocation}`;
 
-function openDailyRouteInMaps() {
-  const routeLocations = visibleEvents
-    .map((event: any) => event.location)
-    .filter(Boolean);
-
-  if (routeLocations.length === 0) {
-    Alert.alert("No route", "This day does not have locations yet.");
-    return;
+    Linking.openURL(url);
   }
 
-  const routePath = routeLocations
-    .map((location: string) => encodeURIComponent(location))
-    .join("/");
-
-  const url = `https://www.google.com/maps/dir/${routePath}`;
-
-  Linking.openURL(url);
-}
-
-async function pickUploadImage(slotKey: string, label: string) {
-  if (!currentUser) return;
-
-  const permissionResult =
-    await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-  if (!permissionResult.granted) {
-    Alert.alert(
-      "Permission needed",
-      "Please allow photo access so you can upload images."
+  function openDailyRouteInMaps() {
+    const selectedDay = days[selectedDayIndex];
+    const visibleEvents = selectedDay.events.filter((event: any) =>
+      canSeeEvent(event, currentUser)
     );
-    return;
+
+    const routeLocations = visibleEvents
+      .map((event: any) => event.location)
+      .filter(Boolean);
+
+    if (routeLocations.length === 0) {
+      Alert.alert("No route", "This day does not have locations yet.");
+      return;
+    }
+
+    const routePath = routeLocations
+      .map((location: string) => encodeURIComponent(location))
+      .join("/");
+
+    const url = `https://www.google.com/maps/dir/${routePath}`;
+
+    Linking.openURL(url);
   }
 
-  const result = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ["images"] as any,
-    allowsEditing: false,
-    quality: 0.8,
-  });
+  async function pickUploadImage(slotKey: string, label: string) {
+    if (!currentUser || !currentUser.name) return;
 
-  if (result.canceled) return;
+    const permissionResult =
+      await ImagePicker.requestMediaLibraryPermissionsAsync();
 
-  const asset = result.assets[0];
+    if (!permissionResult.granted) {
+      Alert.alert(
+        "Permission needed",
+        "Please allow photo access so you can upload images."
+      );
+      return;
+    }
 
-  setUploads({
-    ...uploads,
-    [slotKey]: {
-      label,
-      uploadedBy: currentUser.name,
-      status: "Uploaded",
-      time: "Now",
-      uri: asset.uri,
-      fileName: asset.fileName || "Image upload",
-      type: asset.type || "image",
-    },
-  });
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"] as any,
+      allowsEditing: false,
+      quality: 0.8,
+    });
 
-  Alert.alert("Image Added ✨", `${label} image was added.`);
-}
+    if (result.canceled) return;
 
-function renderUploadSlot(slotKey: string, label: string, icon: string) {
-  const upload = uploads[slotKey];
+    const asset = result.assets[0];
 
-  return (
-    <View style={styles.uploadSlotCard}>
-      <View style={styles.uploadSlotTopRow}>
-        <Text style={styles.uploadIcon}>{icon}</Text>
+    setUploads({
+      ...uploads,
+      [slotKey]: {
+        label,
+        uploadedBy: currentUser.name,
+        status: "Uploaded",
+        time: "Now",
+        uri: asset.uri,
+        fileName: asset.fileName || "Image upload",
+        type: asset.type || "image",
+      },
+    });
 
-        <View style={{ flex: 1 }}>
-          <Text style={styles.uploadTitle}>{label}</Text>
-          <Text style={styles.uploadStatus}>
-            {upload
-              ? `Uploaded by ${upload.uploadedBy} · ${upload.time}`
-              : "No image uploaded yet"}
-          </Text>
+    Alert.alert("Image Added ✨", `${label} image was added.`);
+  }
+
+  function renderUploadSlot(slotKey: string, label: string, icon: string) {
+    const upload = uploads[slotKey];
+
+    return (
+      <View style={styles.uploadSlotCard}>
+        <View style={styles.uploadSlotTopRow}>
+          <Text style={styles.uploadIcon}>{icon}</Text>
+
+          <View style={{ flex: 1 }}>
+            <Text style={styles.uploadTitle}>{label}</Text>
+            <Text style={styles.uploadStatus}>
+              {upload
+                ? `Uploaded by ${upload.uploadedBy} · ${upload.time}`
+                : "No image uploaded yet"}
+            </Text>
+          </View>
         </View>
+
+        {upload?.uri && (
+          <Image source={{ uri: upload.uri }} style={styles.uploadPreview} />
+        )}
+
+        <Pressable
+          onPress={() => pickUploadImage(slotKey, label)}
+          style={[
+            styles.uploadActionButton,
+            upload && styles.uploadActionButtonDone,
+          ]}
+        >
+          <Text style={styles.uploadActionText}>
+            {upload ? "Replace Image" : "Choose Image"}
+          </Text>
+        </Pressable>
       </View>
-
-      {upload?.uri && (
-        <Image source={{ uri: upload.uri }} style={styles.uploadPreview} />
-      )}
-
-      <Pressable
-        onPress={() => pickUploadImage(slotKey, label)}
-        style={[
-          styles.uploadActionButton,
-          upload && styles.uploadActionButtonDone,
-        ]}
-      >
-        <Text style={styles.uploadActionText}>
-          {upload ? "Replace Image" : "Choose Image"}
-        </Text>
-      </Pressable>
-    </View>
-  );
-}
-
-async function sendAnnouncement() {
-  if (!currentUser) return;
-
-  if (currentUser.role !== "OWNER") {
-    Alert.alert(
-      "Owner Only",
-      "Only Blossom, Simone, and Kacper can send announcements."
     );
-    return;
   }
 
-  if (!announcementInput.trim()) return;
+  async function sendAnnouncement() {
+    if (!currentUser || !currentUser.name) return;
 
-  const announcementText = announcementInput;
-  setAnnouncementInput("");
+    if (currentUser.role !== "OWNER") {
+      Alert.alert(
+        "Owner Only",
+        "Only Blossom, Simone, and Kacper can send announcements."
+      );
+      return;
+    }
 
-  try {
-    await addDoc(collection(db, "tripmuse-announcements"), {
-      sender: currentUser.name,
-      senderRole: currentUser.role,
-      title: "Trip Update",
-      body: announcementText,
-      audience: announcementAudience,
-      createdAt: serverTimestamp(),
-    });
+    if (!announcementInput.trim()) return;
 
-    Alert.alert("Blast Sent ✨", `Announcement sent to ${announcementAudience}.`);
-  } catch (error) {
-    Alert.alert("Announcement not sent", "Please try again.");
-    console.log(error);
+    const announcementText = announcementInput;
+    setAnnouncementInput("");
+
+    try {
+      await addDoc(collection(db, "tripmuse-announcements"), {
+        sender: currentUser.name,
+        senderRole: currentUser.role,
+        title: "Trip Update",
+        body: announcementText,
+        audience: announcementAudience,
+        createdAt: serverTimestamp(),
+      });
+
+      Alert.alert(
+        "Blast Sent ✨",
+        `Announcement sent to ${announcementAudience}.`
+      );
+    } catch (error) {
+      Alert.alert("Announcement not sent", "Please try again.");
+      console.log(error);
+    }
   }
-}
- 
+
+  if (!currentUser || !currentUser.name) {
+    return (
+      <ImageBackground source={citrusPattern} style={styles.bg}>
+        <LinearGradient colors={["#FFF8F2EE", "#FFF8F2DD"]} style={styles.wrap}>
+          <ScrollView contentContainerStyle={styles.container}>
+            <Text style={styles.logo}>🍋 TripMuse</Text>
+            <Text style={styles.title}>Euro Summer 2026</Text>
+            <Text style={styles.subtitle}>
+              Select your name and enter your phone number.
+            </Text>
+
+            {tripMembers.map((person: any) => (
+              <Pressable
+                key={person.id}
+                onPress={() => setSelectedMember(person)}
+                style={[
+                  styles.memberButton,
+                  selectedMember?.id === person.id && styles.selected,
+                ]}
+              >
+                <Text style={styles.memberText}>
+                  {person.role === "OWNER" ? "👑 " : "☀️ "}
+                  {person.name}
+                </Text>
+              </Pressable>
+            ))}
+
+            <TextInput
+              value={phone}
+              onChangeText={setPhone}
+              keyboardType="phone-pad"
+              placeholder="Phone number"
+              style={styles.input}
+            />
+
+            <Pressable onPress={signIn} style={styles.primaryButton}>
+              <Text style={styles.primaryText}>Enter Trip ✈️</Text>
+            </Pressable>
+          </ScrollView>
+        </LinearGradient>
+      </ImageBackground>
+    );
+  }
 
   const selectedDay = days[selectedDayIndex];
   const visibleEvents = selectedDay.events.filter((event: any) =>
@@ -323,7 +395,7 @@ async function sendAnnouncement() {
           <Text style={styles.logo}>🍋 TripMuse</Text>
           <Text style={styles.title}>Euro Summer 2026</Text>
           <Text style={styles.subtitle}>
-            Signed in as {currentUser?.name || "Guest"} · {currentUser?.role || "VIEWER"}
+            Signed in as {currentUser.name} · {currentUser.role}
           </Text>
 
           <View style={styles.tabs}>
@@ -391,11 +463,12 @@ async function sendAnnouncement() {
                 <Text style={styles.muted}>
                   {selectedDay.outfit.description}
                 </Text>
+
                 {renderUploadSlot(
-  `outfit-${selectedDay.id}`,
-  "Outfit Inspiration",
-  "👗"
-)}
+                  `outfit-${selectedDay.id}`,
+                  "Outfit Inspiration",
+                  "👗"
+                )}
               </View>
 
               {visibleEvents.length === 0 ? (
@@ -422,14 +495,18 @@ async function sendAnnouncement() {
                     </View>
 
                     <View style={styles.uploadGrid}>
-  {renderUploadSlot(`qr-${event.id}`, "QR / Ticket", "🎟️")}
-  {renderUploadSlot(
-    `confirmation-${event.id}`,
-    "Confirmation Screenshot",
-    "🧾"
-  )}
-  {renderUploadSlot(`photos-${event.id}`, "Event Photos", "📸")}
-</View>
+                      {renderUploadSlot(`qr-${event.id}`, "QR / Ticket", "🎟️")}
+                      {renderUploadSlot(
+                        `confirmation-${event.id}`,
+                        "Confirmation Screenshot",
+                        "🧾"
+                      )}
+                      {renderUploadSlot(
+                        `photos-${event.id}`,
+                        "Event Photos",
+                        "📸"
+                      )}
+                    </View>
 
                     <Text style={styles.badge}>
                       {event.group === "EVERYONE"
@@ -448,7 +525,7 @@ async function sendAnnouncement() {
                 <Text style={styles.cardLabel}>Group Chat</Text>
                 <Text style={styles.cardTitle}>Euro Summer Chat 💬</Text>
                 <Text style={styles.muted}>
-                  Messages are local for now. Firebase real-time chat comes later.
+                  Messages now save to Firebase Firestore.
                 </Text>
               </View>
 
@@ -545,78 +622,86 @@ async function sendAnnouncement() {
           )}
 
           {tab === "Map" && (
-  <View>
-    <View style={styles.mapHero}>
-      <Text style={styles.cardLabel}>Map Preview</Text>
-      <Text style={styles.cardTitle}>Daily Route 🗺️</Text>
-      <Text style={styles.muted}>
-        Showing visible locations for {selectedDay.day}.
-      </Text>
+            <View>
+              <View style={styles.mapHero}>
+                <Text style={styles.cardLabel}>Map Preview</Text>
+                <Text style={styles.cardTitle}>Daily Route 🗺️</Text>
+                <Text style={styles.muted}>
+                  Showing visible locations for {selectedDay.day}.
+                </Text>
 
-      <Pressable onPress={openDailyRouteInMaps} style={styles.routeButton}>
-        <Text style={styles.primaryText}>Open Daily Route in Google Maps</Text>
-      </Pressable>
-    </View>
+                <Pressable
+                  onPress={openDailyRouteInMaps}
+                  style={styles.routeButton}
+                >
+                  <Text style={styles.primaryText}>
+                    Open Daily Route in Google Maps
+                  </Text>
+                </Pressable>
+              </View>
 
-    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-      {days.map((day: any, index: number) => (
-        <Pressable
-          key={day.id}
-          onPress={() => setSelectedDayIndex(index)}
-          style={[
-            styles.dayPill,
-            selectedDayIndex === index && styles.activeDayPill,
-          ]}
-        >
-          <Text style={styles.dayPillText}>{day.date}</Text>
-          <Text style={styles.dayPillSmall}>{day.day}</Text>
-        </Pressable>
-      ))}
-    </ScrollView>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {days.map((day: any, index: number) => (
+                  <Pressable
+                    key={day.id}
+                    onPress={() => setSelectedDayIndex(index)}
+                    style={[
+                      styles.dayPill,
+                      selectedDayIndex === index && styles.activeDayPill,
+                    ]}
+                  >
+                    <Text style={styles.dayPillText}>{day.date}</Text>
+                    <Text style={styles.dayPillSmall}>{day.day}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
 
-    {visibleEvents.length === 0 ? (
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>No map locations</Text>
-        <Text style={styles.muted}>
-          This day has no visible events with locations.
-        </Text>
-      </View>
-    ) : (
-      visibleEvents.map((event: any) => (
-        <View key={event.id} style={styles.locationCard}>
-          <View style={styles.locationTopRow}>
-            <Text style={styles.locationIcon}>
-              {event.type === "flight"
-                ? "✈️"
-                : event.type === "dinner"
-                ? "🍽️"
-                : event.type === "nightlife"
-                ? "🍸"
-                : event.type === "festival"
-                ? "🎶"
-                : "📍"}
-            </Text>
+              {visibleEvents.length === 0 ? (
+                <View style={styles.card}>
+                  <Text style={styles.cardTitle}>No map locations</Text>
+                  <Text style={styles.muted}>
+                    This day has no visible events with locations.
+                  </Text>
+                </View>
+              ) : (
+                visibleEvents.map((event: any) => (
+                  <View key={event.id} style={styles.locationCard}>
+                    <View style={styles.locationTopRow}>
+                      <Text style={styles.locationIcon}>
+                        {event.type === "flight"
+                          ? "✈️"
+                          : event.type === "dinner"
+                          ? "🍽️"
+                          : event.type === "nightlife"
+                          ? "🍸"
+                          : event.type === "festival"
+                          ? "🎶"
+                          : "📍"}
+                      </Text>
 
-            <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle}>{event.title}</Text>
-              <Text style={styles.locationMeta}>
-                {selectedDay.date} {event.time ? `· ${event.time}` : ""}
-              </Text>
-              <Text style={styles.muted}>{event.location}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.cardTitle}>{event.title}</Text>
+                        <Text style={styles.locationMeta}>
+                          {selectedDay.date}{" "}
+                          {event.time ? `· ${event.time}` : ""}
+                        </Text>
+                        <Text style={styles.muted}>{event.location}</Text>
+                      </View>
+                    </View>
+
+                    <Pressable
+                      onPress={() => openLocationInMaps(event.location)}
+                      style={styles.outlineButton}
+                    >
+                      <Text style={styles.outlineButtonText}>
+                        Open Location
+                      </Text>
+                    </Pressable>
+                  </View>
+                ))
+              )}
             </View>
-          </View>
-
-          <Pressable
-            onPress={() => openLocationInMaps(event.location)}
-            style={styles.outlineButton}
-          >
-            <Text style={styles.outlineButtonText}>Open Location</Text>
-          </Pressable>
-        </View>
-      ))
-    )}
-  </View>
-)}
+          )}
         </ScrollView>
       </LinearGradient>
     </ImageBackground>
@@ -800,18 +885,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
 
-  uploadSlot: {
-    height: 120,
-    borderRadius: 22,
-    borderStyle: "dashed",
-    borderWidth: 1,
-    borderColor: colors.coral,
-    backgroundColor: "#FFF6EF",
-    justifyContent: "center",
-    alignItems: "center",
-    marginTop: 16,
-  },
-
   date: {
     color: colors.terracotta,
     fontWeight: "900",
@@ -827,23 +900,6 @@ const styles = StyleSheet.create({
   infoText: {
     fontWeight: "800",
     color: colors.text,
-  },
-
-  qrSlot: {
-    height: 90,
-    borderRadius: 22,
-    borderStyle: "dashed",
-    borderWidth: 1,
-    borderColor: colors.coral,
-    backgroundColor: "#FFF6EF",
-    justifyContent: "center",
-    alignItems: "center",
-    marginTop: 16,
-  },
-
-  qrText: {
-    color: colors.terracotta,
-    fontWeight: "800",
   },
 
   badge: {
@@ -962,12 +1018,6 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
 
-  mapCard: {
-    backgroundColor: colors.sky,
-    borderRadius: 28,
-    padding: 20,
-    marginBottom: 16,
-  },
   mapHero: {
     backgroundColor: colors.sky,
     borderRadius: 30,
@@ -1022,6 +1072,7 @@ const styles = StyleSheet.create({
     color: colors.ocean,
     fontWeight: "900",
   },
+
   uploadGrid: {
     gap: 12,
     marginTop: 16,
@@ -1076,7 +1127,7 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
 
-    uploadPreview: {
+  uploadPreview: {
     width: "100%",
     height: 160,
     borderRadius: 18,
