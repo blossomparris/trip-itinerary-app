@@ -472,7 +472,12 @@ export default function Index() {
 
   if (!currentUser || !currentUser.name) {
     return (
-      <ImageBackground source={citrusPattern} style={styles.bg}>
+      <ImageBackground
+  source={citrusPattern}
+  style={styles.bg}
+  imageStyle={styles.bgImage}
+  resizeMode="repeat"
+>
         <LinearGradient colors={["#FFF8F2EE", "#FFF8F2DD"]} style={styles.wrap}>
           <ScrollView contentContainerStyle={styles.container}>
             <Text style={styles.logo}>🍋 EuroSummer2026</Text>
@@ -534,7 +539,12 @@ export default function Index() {
   );
 
   return (
-    <ImageBackground source={citrusPattern} style={styles.bg}>
+    <ImageBackground
+  source={citrusPattern}
+  style={styles.bg}
+  imageStyle={styles.bgImage}
+  resizeMode="repeat"
+>
       <LinearGradient colors={["#FFF8F2F5", "#FFF8F2E8"]} style={styles.wrap}>
         <ScrollView contentContainerStyle={styles.app}>
           <Image source={santoriniMoodboard} style={styles.heroImage} />
@@ -939,16 +949,42 @@ function MiniCard({ title, value, icon }: any) {
 }
 
 const styles = StyleSheet.create({
-  bg: { flex: 1 },
-  wrap: { flex: 1 },
-  container: { padding: 24, paddingTop: 70 },
-  app: { padding: 20, paddingTop: 50, paddingBottom: 60 },
+  bg: {
+    flex: 1,
+    backgroundColor: "#FFF8F2",
+  },
+
+  bgImage: {
+    opacity: 0.14,
+  },
+
+  wrap: {
+    flex: 1,
+  },
+
+  container: {
+    paddingHorizontal: 16,
+    paddingTop: 44,
+    paddingBottom: 80,
+    width: "100%",
+    maxWidth: 760,
+    alignSelf: "center",
+  },
+
+  app: {
+    paddingHorizontal: 16,
+    paddingTop: 24,
+    paddingBottom: 120,
+    width: "100%",
+    maxWidth: 760,
+    alignSelf: "center",
+  },
 
   heroImage: {
     width: "100%",
-    height: 220,
-    borderRadius: 32,
-    marginBottom: 20,
+    height: 150,
+    borderRadius: 26,
+    marginBottom: 16,
   },
 
   logo: {
@@ -1124,9 +1160,9 @@ const styles = StyleSheet.create({
 
   card: {
     backgroundColor: colors.white,
-    borderRadius: 28,
-    padding: 20,
-    marginBottom: 16,
+    borderRadius: 24,
+    padding: 16,
+    marginBottom: 14,
   },
 
   cardLabel: {
@@ -1138,7 +1174,7 @@ const styles = StyleSheet.create({
   },
 
   cardTitle: {
-    fontSize: 23,
+    fontSize: 20,
     fontWeight: "900",
     color: colors.text,
   },
@@ -1430,12 +1466,12 @@ const styles = StyleSheet.create({
 
   uploadSlotCard: {
     backgroundColor: "#FFF6EF",
-    borderRadius: 22,
+    borderRadius: 20,
     borderStyle: "dashed",
     borderWidth: 1,
     borderColor: colors.coral,
-    padding: 14,
-    marginTop: 12,
+    padding: 12,
+    marginTop: 10,
   },
 
   uploadSlotTopRow: {
@@ -1493,7 +1529,7 @@ const styles = StyleSheet.create({
 
   uploadPreview: {
     width: "100%",
-    height: 280,
+    height: 220,
     borderRadius: 18,
     marginTop: 12,
     backgroundColor: "#FFF8F2",

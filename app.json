@@ -27,18 +27,24 @@
     "plugins": [
       "expo-router",
       [
-  "expo-splash-screen",
-  {
-    "backgroundColor": "#FFF8F2",
-    "image": "./assets/images/appcover.png",
-    "imageWidth": 220
-  }
-],
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#FFF8F2",
+          "image": "./assets/images/appcover.png",
+          "imageWidth": 220
+        }
+      ],
       "expo-image"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "5724c129-0ebf-40e2-b09e-ec45a7146500"
+      }
     }
   }
 }
