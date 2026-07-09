@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "trip-itinerary-app-stable",
-    "slug": "trip-itinerary-app-stable",
+  "name": "EuroSummer2026",
+  "slug": "eurosummer2026",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
