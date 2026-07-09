@@ -3,10 +3,13 @@ import { LinearGradient } from "expo-linear-gradient";
 import {
   addDoc,
   collection,
+  deleteDoc,
+  doc,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
+  setDoc,
 } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
@@ -96,20 +99,46 @@ export default function Index() {
   ]);
 
   const [uploads, setUploads] = useState<any>({});
+  const [customEvents, setCustomEvents] = useState<any[]>([]);
+  const [deletedEventIds, setDeletedEventIds] = useState<any>({});
+  const [selectedClosetMemberId, setSelectedClosetMemberId] = useState(
+    tripMembers[0]?.id || "blossom"
+  );
+
+  const [newEventTitle, setNewEventTitle] = useState("");
+  const [newEventTime, setNewEventTime] = useState("");
+  const [newEventLocation, setNewEventLocation] = useState("");
+  const [newEventConfirmation, setNewEventConfirmation] = useState("");
+  const [newEventType, setNewEventType] = useState("activity");
+  const [newEventGroup, setNewEventGroup] = useState("EVERYONE");
 
   useEffect(() => {
-    try {
-      const browserStorage = (globalThis as any)?.localStorage;
-      if (!browserStorage) return;
+    const uploadsQuery = query(
+      collection(db, "tripmuse-uploads"),
+      orderBy("createdAt", "desc")
+    );
 
-      const savedUploads = browserStorage.getItem("tripmuse-uploads");
+    const unsubscribeUploads = onSnapshot(
+      uploadsQuery,
+      (snapshot) => {
+        const uploadMap: any = {};
 
-      if (savedUploads) {
-        setUploads(JSON.parse(savedUploads));
+        snapshot.docs.forEach((docSnapshot: any) => {
+          const data = docSnapshot.data();
+          uploadMap[docSnapshot.id] = {
+            id: docSnapshot.id,
+            ...data,
+          };
+        });
+
+        setUploads(uploadMap);
+      },
+      (error) => {
+        console.log("Upload listener error:", error);
       }
-    } catch (error) {
-      console.log("Could not load saved uploads:", error);
-    }
+    );
+
+    return () => unsubscribeUploads();
   }, []);
 
   useEffect(() => {
@@ -171,9 +200,67 @@ export default function Index() {
       }
     );
 
+    const eventsQuery = query(
+      collection(db, "tripmuse-events"),
+      orderBy("createdAt", "asc")
+    );
+
+    const unsubscribeEvents = onSnapshot(
+      eventsQuery,
+      (snapshot) => {
+        const firebaseEvents = snapshot.docs.map((docSnapshot: any) => {
+          const data = docSnapshot.data();
+
+          return {
+            id: docSnapshot.id,
+            source: "custom",
+            dayId: data.dayId,
+            title: data.title || "Untitled Event",
+            time: data.time || "",
+            location: data.location || "",
+            confirmation: data.confirmation || "",
+            group: data.group || "EVERYONE",
+            attendees: data.attendees || tripMembers.map((person: any) => person.name),
+            type: data.type || "activity",
+            notes: data.notes || "",
+            images: [],
+            createdBy: data.createdBy || "",
+          };
+        });
+
+        setCustomEvents(firebaseEvents);
+      },
+      (error) => {
+        console.log("Events listener error:", error);
+      }
+    );
+
+    const deletedEventsQuery = query(
+      collection(db, "tripmuse-deleted-events"),
+      orderBy("createdAt", "desc")
+    );
+
+    const unsubscribeDeletedEvents = onSnapshot(
+      deletedEventsQuery,
+      (snapshot) => {
+        const deletedMap: any = {};
+
+        snapshot.docs.forEach((docSnapshot: any) => {
+          deletedMap[docSnapshot.id] = true;
+        });
+
+        setDeletedEventIds(deletedMap);
+      },
+      (error) => {
+        console.log("Deleted events listener error:", error);
+      }
+    );
+
     return () => {
       unsubscribeChat();
       unsubscribeAnnouncements();
+      unsubscribeEvents();
+      unsubscribeDeletedEvents();
     };
   }, []);
 
@@ -263,9 +350,31 @@ export default function Index() {
     Linking.openURL(url);
   }
 
+  function getEventsForDay(day: any) {
+    const sharedEvents = customEvents.filter((event: any) => event.dayId === day.id);
+
+    return [...day.events, ...sharedEvents].filter(
+      (event: any) => !deletedEventIds[event.id]
+    );
+  }
+
+  function getAttendeesForGroup(group: string) {
+    if (group === "OWNERS") {
+      return tripMembers
+        .filter((person: any) => person.role === "OWNER")
+        .map((person: any) => person.name);
+    }
+
+    if (group === "PRIVATE") {
+      return currentUser?.name ? [currentUser.name] : [];
+    }
+
+    return tripMembers.map((person: any) => person.name);
+  }
+
   function openDailyRouteInMaps() {
     const selectedDay = days[selectedDayIndex];
-    const visibleEvents = selectedDay.events.filter((event: any) =>
+    const visibleEvents = getEventsForDay(selectedDay).filter((event: any) =>
       canSeeEvent(event, currentUser)
     );
 
@@ -287,6 +396,75 @@ export default function Index() {
     Linking.openURL(url);
   }
 
+  async function addCustomEvent() {
+    if (!currentUser || currentUser.role !== "OWNER") {
+      Alert.alert("Owner only", "Only trip owners can add events.");
+      return;
+    }
+
+    if (!newEventTitle.trim()) {
+      Alert.alert("Add a title", "Please enter an event title.");
+      return;
+    }
+
+    const selectedDay = days[selectedDayIndex];
+
+    try {
+      await addDoc(collection(db, "tripmuse-events"), {
+        dayId: selectedDay.id,
+        dayLabel: selectedDay.day,
+        date: selectedDay.date,
+        title: newEventTitle.trim(),
+        time: newEventTime.trim(),
+        location: newEventLocation.trim(),
+        confirmation: newEventConfirmation.trim(),
+        group: newEventGroup,
+        attendees: getAttendeesForGroup(newEventGroup),
+        type: newEventType.trim() || "activity",
+        notes: "",
+        createdBy: currentUser.name,
+        createdAt: serverTimestamp(),
+      });
+
+      setNewEventTitle("");
+      setNewEventTime("");
+      setNewEventLocation("");
+      setNewEventConfirmation("");
+      setNewEventType("activity");
+      setNewEventGroup("EVERYONE");
+
+      Alert.alert("Event Added ✨", "The event is now shared.");
+    } catch (error) {
+      console.log("Add event error:", error);
+      Alert.alert("Event not added", "Please try again.");
+    }
+  }
+
+  async function deleteEvent(event: any) {
+    if (!currentUser || currentUser.role !== "OWNER") {
+      Alert.alert("Owner only", "Only trip owners can delete events.");
+      return;
+    }
+
+    try {
+      if (event.source === "custom") {
+        await deleteDoc(doc(db, "tripmuse-events", event.id));
+      } else {
+        await setDoc(doc(db, "tripmuse-deleted-events", event.id), {
+          eventId: event.id,
+          title: event.title,
+          deletedBy: currentUser.name,
+          createdAt: serverTimestamp(),
+        });
+      }
+
+      Alert.alert("Event Deleted", "The event was removed from the shared itinerary.");
+    } catch (error) {
+      console.log("Delete event error:", error);
+      Alert.alert("Event not deleted", "Please try again.");
+    }
+  }
+
   async function pickUploadImage(slotKey: string, label: string) {
     if (!currentUser || !currentUser.name) return;
 
@@ -303,8 +481,8 @@ export default function Index() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"] as any,
-      allowsEditing: false,
-      quality: 0.35,
+      allowsEditing: true,
+      quality: 0.18,
       base64: true,
     });
 
@@ -314,6 +492,14 @@ export default function Index() {
 
     if (!asset.base64) {
       Alert.alert("Image issue", "Please choose a smaller image.");
+      return;
+    }
+
+    if (asset.base64.length > 700000) {
+      Alert.alert(
+        "Image too large",
+        "Please choose a screenshot or smaller image so it can sync for everyone."
+      );
       return;
     }
 
@@ -329,62 +515,50 @@ export default function Index() {
       uri: imageUri,
       fileName: asset.fileName || `${slotKey}.jpg`,
       type: "image",
+      createdAt: serverTimestamp(),
     };
 
-    const updatedUploads = {
-      ...uploads,
-      [slotKey]: savedUpload,
-    };
-
-    setUploads(updatedUploads);
+    setUploads((currentUploads: any) => ({
+      ...currentUploads,
+      [slotKey]: {
+        ...savedUpload,
+        createdAt: new Date().toISOString(),
+      },
+    }));
 
     try {
-      const browserStorage = (globalThis as any)?.localStorage;
-
-      if (!browserStorage) {
-        Alert.alert(
-          "Image Preview Added",
-          "This browser does not support local saving."
-        );
-        return;
-      }
-
-      browserStorage.setItem("tripmuse-uploads", JSON.stringify(updatedUploads));
-      Alert.alert("Image Saved ✨", `${label} image was saved in this browser.`);
+      await setDoc(doc(db, "tripmuse-uploads", slotKey), savedUpload);
+      Alert.alert("Image Saved ✨", `${label} image is now shared.`);
     } catch (error) {
-      console.log("Local save error:", error);
+      console.log("Cloud save error:", error);
       Alert.alert(
-        "Image too large",
+        "Image not saved",
         "Please choose a smaller image or screenshot."
       );
     }
   }
 
-  function deleteUpload(slotKey: string) {
+  async function deleteUpload(slotKey: string) {
     const updatedUploads = { ...uploads };
     delete updatedUploads[slotKey];
 
     setUploads(updatedUploads);
 
     try {
-      const browserStorage = (globalThis as any)?.localStorage;
-      if (browserStorage) {
-        browserStorage.setItem(
-          "tripmuse-uploads",
-          JSON.stringify(updatedUploads)
-        );
-      }
-
-      Alert.alert(
-        "Upload Removed",
-        "The saved image was removed from this browser."
-      );
+      await deleteDoc(doc(db, "tripmuse-uploads", slotKey));
+      Alert.alert("Upload Removed", "The shared image was removed.");
     } catch (error) {
       console.log("Delete upload error:", error);
+      Alert.alert("Upload not deleted", "Please try again.");
     }
   }
 
-  function renderUploadSlot(slotKey: string, label: string, icon: string) {
+  function renderUploadSlot(
+    slotKey: string,
+    label: string,
+    icon: string,
+    canEdit = true
+  ) {
     const upload = uploads[slotKey];
 
     return (
@@ -410,25 +584,31 @@ export default function Index() {
           />
         )}
 
-        <Pressable
-          onPress={() => pickUploadImage(slotKey, label)}
-          style={[
-            styles.uploadActionButton,
-            upload && styles.uploadActionButtonDone,
-          ]}
-        >
-          <Text style={styles.uploadActionText}>
-            {upload ? "Replace Saved Image" : "Choose Image"}
-          </Text>
-        </Pressable>
+        {canEdit ? (
+          <>
+            <Pressable
+              onPress={() => pickUploadImage(slotKey, label)}
+              style={[
+                styles.uploadActionButton,
+                upload && styles.uploadActionButtonDone,
+              ]}
+            >
+              <Text style={styles.uploadActionText}>
+                {upload ? "Replace Saved Image" : "Choose Image"}
+              </Text>
+            </Pressable>
 
-        {upload && (
-          <Pressable
-            onPress={() => deleteUpload(slotKey)}
-            style={styles.deleteUploadButton}
-          >
-            <Text style={styles.deleteUploadText}>Delete Upload</Text>
-          </Pressable>
+            {upload && (
+              <Pressable
+                onPress={() => deleteUpload(slotKey)}
+                style={styles.deleteUploadButton}
+              >
+                <Text style={styles.deleteUploadText}>Delete Upload</Text>
+              </Pressable>
+            )}
+          </>
+        ) : (
+          <Text style={styles.readOnlyText}>Viewing only</Text>
         )}
       </View>
     );
@@ -534,9 +714,18 @@ export default function Index() {
   }
 
   const selectedDay = days[selectedDayIndex];
-  const visibleEvents = selectedDay.events.filter((event: any) =>
+  const selectedDayEvents = getEventsForDay(selectedDay);
+  const visibleEvents = selectedDayEvents.filter((event: any) =>
     canSeeEvent(event, currentUser)
   );
+
+  const selectedClosetMember =
+    tripMembers.find((person: any) => person.id === selectedClosetMemberId) ||
+    tripMembers[0];
+
+  const canEditSelectedCloset =
+    currentUser?.role === "OWNER" ||
+    selectedClosetMember?.id === currentUser?.id;
 
   return (
     <ImageBackground
@@ -566,7 +755,7 @@ export default function Index() {
           </Pressable>
 
           <View style={styles.tabs}>
-            {["Dashboard", "Itinerary", "Chat", "Announcements", "Map"].map(
+            {["Dashboard", "Itinerary", "Closets", "Chat", "Announcements", "Map"].map(
               (item) => (
                 <Pressable
                   key={item}
@@ -602,6 +791,13 @@ export default function Index() {
                   >
                     <Text style={styles.quickButtonLightText}>Open Chat</Text>
                   </Pressable>
+
+                  <Pressable
+                    onPress={() => setTab("Closets")}
+                    style={styles.quickButtonLight}
+                  >
+                    <Text style={styles.quickButtonLightText}>View Closets</Text>
+                  </Pressable>
                 </View>
               </View>
 
@@ -625,7 +821,7 @@ export default function Index() {
                 <MiniCard title="Travelers" value="6" icon="👯‍♀️" />
                 <MiniCard title="Owners" value="3" icon="👑" />
                 <MiniCard title="Days" value={String(days.length)} icon="📅" />
-                <MiniCard title="QR Slots" value="Ready" icon="🎟️" />
+                <MiniCard title="Closets" value="Shared" icon="👗" />
               </View>
 
               <View style={styles.card}>
@@ -687,6 +883,70 @@ export default function Index() {
                 ))}
               </ScrollView>
 
+              {currentUser.role === "OWNER" && (
+                <View style={styles.ownerCard}>
+                  <Text style={styles.cardLabel}>Owner Event Controls</Text>
+                  <Text style={styles.cardTitle}>Add an Event ➕</Text>
+                  <Text style={styles.muted}>
+                    Adds to {selectedDay.date} · {selectedDay.day}
+                  </Text>
+
+                  <TextInput
+                    value={newEventTitle}
+                    onChangeText={setNewEventTitle}
+                    placeholder="Event title"
+                    style={styles.eventInput}
+                  />
+
+                  <TextInput
+                    value={newEventTime}
+                    onChangeText={setNewEventTime}
+                    placeholder="Time, ex: 8:00 PM"
+                    style={styles.eventInput}
+                  />
+
+                  <TextInput
+                    value={newEventLocation}
+                    onChangeText={setNewEventLocation}
+                    placeholder="Location"
+                    style={styles.eventInput}
+                  />
+
+                  <TextInput
+                    value={newEventConfirmation}
+                    onChangeText={setNewEventConfirmation}
+                    placeholder="Confirmation / notes"
+                    style={styles.eventInput}
+                  />
+
+                  <TextInput
+                    value={newEventType}
+                    onChangeText={setNewEventType}
+                    placeholder="Type, ex: dinner, flight, activity"
+                    style={styles.eventInput}
+                  />
+
+                  <View style={styles.audienceRow}>
+                    {["EVERYONE", "OWNERS", "PRIVATE"].map((group) => (
+                      <Pressable
+                        key={group}
+                        onPress={() => setNewEventGroup(group)}
+                        style={[
+                          styles.audiencePill,
+                          newEventGroup === group && styles.activeAudiencePill,
+                        ]}
+                      >
+                        <Text style={styles.audienceText}>{group}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  <Pressable onPress={addCustomEvent} style={styles.primaryButton}>
+                    <Text style={styles.primaryText}>Add Event</Text>
+                  </Pressable>
+                </View>
+              )}
+
               <View style={styles.card}>
                 <Text style={styles.cardLabel}>Outfit Planner 👗</Text>
                 <Text style={styles.cardTitle}>{selectedDay.outfit.title}</Text>
@@ -741,12 +1001,80 @@ export default function Index() {
                     <Text style={styles.badge}>
                       {event.group === "EVERYONE"
                         ? "Visible to everyone 🌍"
+                        : event.group === "OWNERS"
+                        ? "Owners only 👑"
                         : "Private event 💌"}
                     </Text>
+
+                    {currentUser.role === "OWNER" && (
+                      <Pressable
+                        onPress={() => deleteEvent(event)}
+                        style={styles.dangerButton}
+                      >
+                        <Text style={styles.dangerButtonText}>Delete Event</Text>
+                      </Pressable>
+                    )}
                   </View>
                 ))
               )}
             </>
+          )}
+
+          {tab === "Closets" && (
+            <View>
+              <View style={styles.card}>
+                <Text style={styles.cardLabel}>Shared Closets</Text>
+                <Text style={styles.cardTitle}>Traveler Outfit Boards 👗</Text>
+                <Text style={styles.muted}>
+                  Pick a traveler to view their closet. Everyone can view; owners can help manage.
+                </Text>
+              </View>
+
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {tripMembers.map((person: any) => (
+                  <Pressable
+                    key={person.id}
+                    onPress={() => setSelectedClosetMemberId(person.id)}
+                    style={[
+                      styles.closetPill,
+                      selectedClosetMemberId === person.id && styles.activeClosetPill,
+                    ]}
+                  >
+                    <Text style={styles.closetPillText}>{person.name}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+
+              <View style={styles.card}>
+                <Text style={styles.cardLabel}>
+                  {selectedClosetMember?.name || "Traveler"}'s Closet
+                </Text>
+                <Text style={styles.cardTitle}>Outfit Inspiration</Text>
+                <Text style={styles.muted}>
+                  {canEditSelectedCloset
+                    ? "Upload and manage looks for this closet."
+                    : "You are viewing this traveler's closet."}
+                </Text>
+
+                <View style={styles.uploadGrid}>
+                  {[
+                    "Travel Look",
+                    "Dinner Look",
+                    "Beach Club Look",
+                    "Night Out",
+                    "Festival Fit",
+                    "Extra Inspiration",
+                  ].map((label, index) =>
+                    renderUploadSlot(
+                      `closet-${selectedClosetMember?.id || "traveler"}-${index + 1}`,
+                      label,
+                      "👗",
+                      canEditSelectedCloset
+                    )
+                  )}
+                </View>
+              </View>
+            </View>
           )}
 
           {tab === "Chat" && (
@@ -1468,6 +1796,53 @@ const styles = StyleSheet.create({
   outlineButtonText: {
     color: colors.ocean,
     fontWeight: "900",
+  },
+
+  eventInput: {
+    backgroundColor: colors.white,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 14,
+    marginTop: 10,
+  },
+
+  dangerButton: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#B94B4B",
+    paddingVertical: 10,
+    alignItems: "center",
+    marginTop: 12,
+  },
+
+  dangerButtonText: {
+    color: "#B94B4B",
+    fontWeight: "900",
+  },
+
+  closetPill: {
+    backgroundColor: colors.white,
+    borderRadius: 999,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginRight: 10,
+    marginBottom: 18,
+  },
+
+  activeClosetPill: {
+    backgroundColor: colors.blush,
+  },
+
+  closetPillText: {
+    color: colors.text,
+    fontWeight: "900",
+  },
+
+  readOnlyText: {
+    color: colors.muted,
+    fontWeight: "800",
+    marginTop: 12,
   },
 
   uploadGrid: {
